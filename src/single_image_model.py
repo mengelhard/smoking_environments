@@ -17,7 +17,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 30
+NUM_TUNING_RUNS = 10
 NUM_ROWS_PER_DATAFILE = None
 
 
@@ -194,7 +194,6 @@ class SingleImageModel:
 		self.dataloader = dataloader
 
 		self.n_out = dataloader.n_out
-		self.n_images = dataloader.n_images
 
 		self.hidden_layer_sizes = [hidden_layer_sizes] * n_hidden_layers
 

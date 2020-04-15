@@ -7,11 +7,6 @@ import sys, os
 
 DATA_DIRS = ['/Users/mme/data', '/scratch/mme4']
 
-DATA_SUBDIRS = {
-	'smok': ['imageturk_smoker', 'imageturk_smoker_b2'],
-	'non': ['imageturk_nonsmoker', 'imageturk_nonsmoker_b2']
-}
-
 MODELS_PATHS = [
 	'/Users/mme/projects/models/research/slim',
 	'/scratch/mme4/models/research/slim'
@@ -29,14 +24,14 @@ MOBILENET_OUTPUT_SIZE = {
 
 IMAGECOL = 'Take a photo of your current environment'
 
-OUTCOMES = [
-	'smoking',
-	'craving',
-	'smoking_allowed',
-	'outside'
-]
+# OUTCOMES = [
+# 	'smoking',
+# 	'craving',
+# 	'smoking_allowed',
+# 	'outside'
+# ]
 
-# OUTCOMES = ['smoking']
+OUTCOMES = ['outside']
 
 VARTYPES = {
 	'smoking': 'categorical',
@@ -47,7 +42,7 @@ VARTYPES = {
 
 CUTOFFS = {# DIVIDE BY >CUTOFF
 	'smoking': 0,
-	'craving': 2,
+	'craving': 0,
 	'smoking_allowed': 0,
 	'outside': 0
 }
@@ -66,27 +61,31 @@ SMOKING_SCALE = {
 	'31-60 minutes ago': 0,
 	'61-120 minutes ago': 0,
 	'Greater than 120 minutes ago': 0,
+	'CONDITION_SKIPPED': np.nan
 }
 
 CRAVING_SCALE = {
 	'Very slightly or not at all': 0,
 	'A little': 1,
 	'Moderately': 2,
+	'Moderate': 2,
 	'Quite a bit': 3,
-	'Extremely': 4
+	'Extremely': 4,
+	'Extreme': 4,
+	'CONDITION_SKIPPED': np.nan
 }
 
 SCALES = {
 	'smoking': SMOKING_SCALE,
 	'craving': CRAVING_SCALE,
-	'smoking_allowed': {'No': 0, 'Yes': 1},
-	'outside': {'Inside': 0, 'Outside': 1}
+	'smoking_allowed': {'No': 0, 'Yes': 1, 'CONDITION_SKIPPED': np.nan},
+	'outside': {'Inside': 0, 'Outside': 1, 'CONDITION_SKIPPED': np.nan}
 }
 
 
 def score_outcome(df, outcome, dichotomize=None):
 
-	s = df[ITEMS[outcome]].apply(lambda x: SCALES[outcome][x])
+	s = df[ITEM[outcome]].apply(lambda x: getv(SCALES[outcome], x))
 
 	if dichotomize == True:
 
@@ -107,3 +106,15 @@ def score_outcome(df, outcome, dichotomize=None):
 	else:
 
 		assert False, 'Could not determine variable type for %s' % outcome
+
+
+def getv(d, key):
+
+	try:
+
+		return d[key]
+
+	except:
+
+		print('Key not found:', key)
+		return np.nan

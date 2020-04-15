@@ -7,14 +7,15 @@ from PIL import Image, ExifTags#, ImageOps
 import constants as const
 
 VERIFY_BATCHES = False
-PLOT_OUTCOMES = True
+PLOT_OUTCOMES = False
+PLOT_SAMPLE_DATA = True
 
 
 def main():
 
 	dl = DataLoader()
 
-	print('Total participants:', len(dl.data['all']))
+	print('Total images:', len(dl.data['all']))
 
 	print('Train data:')
 	print(dl.data['train'][const.OUTCOMES])
@@ -37,67 +38,36 @@ def main():
 			plt.savefig('../results/%s_hist.png' % o)
 			plt.close()
 
-
 	if VERIFY_BATCHES:
 
-		print('Verifying training batches:')
+		for part in ['train', 'val', 'test']:
 
-		for i, (batch_x, batch_y) in enumerate(dl.get_batch('train', 10)):
-			
-			print(
-				'Batch %i: imagefiles shape' % i,
-				np.shape(batch_x),
-				'and outcomes shape',
-				np.shape(batch_y))
+			print('Verifying %s batches:' % part)
 
-		print('Verifying validation batches:')
+			for i, (batch_x, batch_y) in enumerate(dl.get_batch(part, 100)):
+				
+				print(
+					'Batch %i: imagefiles shape' % i,
+					np.shape(batch_x),
+					'and outcomes shape',
+					np.shape(batch_y))
 
-		for i, (batch_x, batch_y) in enumerate(dl.get_batch('val', 10)):
-			
-			print(
-				'Batch %i: imagefiles shape' % i,
-				np.shape(batch_x),
-				'and outcomes shape',
-				np.shape(batch_y))
+	if PLOT_SAMPLE_DATA:
 
-		print('Verifying test batches:')
+		print('Displaying random sample:')
 
-		for i, (batch_x, batch_y) in enumerate(dl.get_batch('test', 10)):
-			
-			print(
-				'Batch %i: imagefiles shape' % i,
-				np.shape(batch_x),
-				'and outcomes shape',
-				np.shape(batch_y))
+		import matplotlib.pyplot as plt
 
-	print('Displaying random sample:')
+		x, y = dl.sample_data(normalize_images=False, n=8)
 
-	import matplotlib.pyplot as plt
+		fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(16, 8))
 
-	x, y = dl.sample_data(normalize_images=False)
+		for i, (xi, yi) in enumerate(zip(x, y)):
 
-	y = np.squeeze(y, axis=0)
-
-	print('Outcomes for displayed images:')
-	print(list(zip(const.OUTCOMES, y)))
-
-	if SINGLE_IMAGE:
-		plt.imshow(np.squeeze(x).astype(int))
-		plt.axis('off')
-		plt.tight_layout()
-		plt.show()
-
-	else:
-
-		fig, ax = plt.subplots(
-			ncols=5,
-			nrows=int(np.ceil(len(x) / 5)),
-			figsize=(15, 6))
-
-		for i, img in enumerate(x):
-			a = ax[i // 5, i % 5]
-			a.imshow(x[i, :, :, :].astype(int))
-			a.axis('off')
+			ax[i // 4, i % 4].imshow(xi.astype(int))
+			outcomes_text = ['%s: %s' % (o, str(v)) for o, v in zip(const.OUTCOMES, yi)]
+			ax[i // 4, i % 4].set_title('\n'.join(outcomes_text))
+			ax[i // 4, i % 4].axis('off')
 
 		plt.tight_layout()
 		plt.show()
@@ -111,62 +81,22 @@ class DataLoader:
 
 		self.datadir = os.path.join(
 			check_directories(const.DATA_DIRS),
-			'deeplearning')
-
-		df_smok, smok_coldicts = self._get_datafile('smok', nrows=nrows)
-		df_smok['smoke'] = 'Yes'
-
-		df_non, non_coldicts = self._get_datafile('non', nrows=nrows)
-		df_non['smoke'] = 'No'
-
-		assert const.ITEMS['smok'].keys() == const.ITEMS['non'].keys()
-
-		for o in const.ITEMS['smok'].keys():
-
-			if o == 'smoking':
-				continue
-
-			smok_items = const.ITEMS['smok'][o]
-			non_items = const.ITEMS['non'][o]
-
-			for smok_item, non_item in zip(smok_items, non_items):
-
-				v0 = smok_coldicts[0].get(smok_item, np.nan)
-				v1 = smok_coldicts[1].get(smok_item, np.nan)
-				v2 = non_coldicts[0].get(non_item, np.nan)
-				v3 = non_coldicts[1].get(non_item, np.nan)
-
-				vstr = '\n'.join(['V%i: %s' % (i, str(v)) for i, v in enumerate(
-					[v0, v1, v2, v3])])
-
-				assert (v0 == v1) and (v1 == v2) and (v2 == v3), vstr
+			'deeplearning', 'EMA data and Photos')
 
 		self.dichotomize = dichotomize
 		self.is_categorical = np.array(
 			[const.VARTYPES[o] == 'categorical' for o in const.OUTCOMES])
 
-		data_smok = self._get_image_filenames(df_smok).join(
-			self._get_outcomes(df_smok, 'smok', dichotomize=dichotomize))
-
-		data_non = self._get_image_filenames(df_non).join(
-			self._get_outcomes(df_non, 'non', dichotomize=dichotomize))
-
 		self.n_out = len(const.OUTCOMES)
-		self.n_images = len(const.IMAGES)
+
+		folders = [f for f in os.listdir(self.datadir) if os.path.isdir(
+			os.path.join(self.datadir, f))]
+		data = [self._read_subject_data(d) for d in folders]
+
+		all_data = self._validate_data(pd.concat(data, axis=0))
 
 		self.data = dict()
-
-		self.data['all'] = pd.concat([data_smok, data_non], axis=0).sample(
-			frac=1, random_state=0) # shuffle rows
-
-		if single_image:
-			frames = []
-			for img in const.IMAGES:
-				frame = self.data['all'][[img] + const.OUTCOMES]
-				frame.columns = ['image'] + const.OUTCOMES
-				frames.append(frame)
-			self.data['all'] = pd.concat(frames, axis=0).sample(
-				frac=1, random_state=0)
+		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
 
 		fold_idx = get_fold_indices(n_folds, len(self.data['all']))
 
@@ -177,17 +107,17 @@ class DataLoader:
 		self.data['train'] = self.data['all'][train_idx]
 		self.n_train = len(self.data['train'])
 
-		print('There are %i subjects in the training set' % self.n_train)
+		print('There are %i images in the training set' % self.n_train)
 
 		self.data['val'] = self.data['all'][val_idx]
 		self.n_val = len(self.data['val'])
 
-		print('There are %i subjects in the validation set' % self.n_val)
+		print('There are %i images in the validation set' % self.n_val)
 
 		self.data['test'] = self.data['all'][test_idx]
 		self.n_test = len(self.data['test'])
 
-		print('There are %i subjects in the test set' % self.n_test)
+		print('There are %i images in the test set' % self.n_test)
 
 		self.train_mean = self.data['train'][const.OUTCOMES].mean(axis=0)
 		self.train_std = self.data['train'][const.OUTCOMES].std(axis=0)
@@ -214,7 +144,8 @@ class DataLoader:
 
 			elif imgfmt == 'array':
 
-				yield np.squeeze(images_from_files(fns, (224, 224))), self._normalize_outcomes(y)
+				yield np.squeeze(images_from_files(fns, (224, 224))), \
+					self._normalize_outcomes(y)
 
 
 	def _normalize_outcomes(self, outcomes):
@@ -225,11 +156,13 @@ class DataLoader:
 
 		elif self.dichotomize == False:
 
-			return (outcomes - self.train_mean[np.newaxis, :]) / self.train_std[np.newaxis, :]
+			return (outcomes - self.train_mean[np.newaxis, :]) / \
+				self.train_std[np.newaxis, :]
 
 		else:
 
-			normalized = (outcomes - self.train_mean[np.newaxis, :]) / self.train_std[np.newaxis, :]
+			normalized = (outcomes - self.train_mean[np.newaxis, :]) / \
+				self.train_std[np.newaxis, :]
 			normalized[:, self.is_categorical] = outcomes[:, self.is_categorical]
 
 			return normalized
@@ -262,7 +195,76 @@ class DataLoader:
 
 		elif imgfmt == 'array':
 
-			return np.squeeze(images_from_files(x, (224, 224), normalize=normalize_images)), y
+			return np.squeeze(images_from_files(
+				x, (224, 224), normalize=normalize_images)), y
+
+
+	def _read_subject_data(self, d):
+
+		pid = int(d.split('_')[1].strip('{}'))
+
+		if pid in [3064]:
+			return None
+
+		data_subdir = os.path.join(self.datadir, d)
+
+		assert os.path.isdir(data_subdir), 'Not a directory: %s' % data_subdir
+
+		print('Reading', data_subdir)
+
+		ema_random = pd.read_excel(os.path.join(
+			data_subdir,
+			'%i_EMA_data' % pid,
+			'Random.xlsx'))
+
+		ema_smoking = pd.read_excel(os.path.join(
+			data_subdir,
+			'%i_EMA_data' % pid,
+			'Smoking.xlsx'))
+
+		ema_smoking = ema_smoking.rename(
+			columns={'How long ago did you use a tobacco product?': \
+				'When did you last use a tobacco product?'})
+
+		ema_random['imagedir'] = os.path.join(
+			data_subdir, 'Random_folder')
+
+		ema_smoking['imagedir'] = os.path.join(
+			data_subdir, 'Smoking_folder')
+
+		df_random = self._get_outcomes(
+			ema_random,
+			dichotomize=self.dichotomize)
+
+		df_smoking = self._get_outcomes(
+			ema_smoking,
+			dichotomize=self.dichotomize)
+
+		df_random['filename'] = ema_random['imagedir'].str.cat(
+			ema_random[const.IMAGECOL].str.split('/').str[-1],
+			sep='/')
+
+		df_smoking['filename'] = ema_smoking['imagedir'].str.cat(
+			ema_smoking[const.IMAGECOL].str.split('/').str[-1],
+			sep='/')
+
+		df = pd.concat([df_random, df_smoking], axis=0)
+
+		df['pid'] = pid
+
+		return df.set_index(['pid', df.index])
+
+
+	def _validate_data(self, df):
+
+		exists = df['filename'].apply(lambda x: os.path.exists(str(x)))
+
+		print('The following files were not found:')
+		print(df['filename'][~exists])
+
+		df['filename'][~exists].to_csv('../results/not_found.csv')
+
+		return df[exists]
 
 
 	def _split_images_and_outcomes(self, df):
@@ -273,111 +275,11 @@ class DataLoader:
 		return filenames, outcomes
 
 
-	def _get_datafile(self, group, nrows=None):
-
-		subdirs = const.DATA_SUBDIRS[group]
-
-		frames = []
-		coldicts = []
-
-		for subdir in subdirs:
-
-			d = os.path.join(self.datadir, subdir)
-
-			fns = listdir_by_ext(d, '.csv')
-
-			print('Found %i .csv files in' % len(fns), subdir)
-			print('Reading', fns[-1])
-
-			df, coldict, reversedict = self._read_imageturk_csv(
-				os.path.join(d, fns[-1]), nrows)
-
-			df = self._filter_imageturk_csv(df, reversedict)
-
-			df['base_dir'] = d
-
-			frames.append(df)
-			coldicts.append(coldict)
-
-		return pd.concat(frames, axis=0, sort=True), coldicts
-
-
-	def _read_imageturk_csv(self, fn, nrows=None):
-
-		df = pd.read_csv(fn, header=[0, 1, 2], nrows=nrows)
-		
-		colnames = [ast.literal_eval(x[2])['ImportId'] for x in df.columns.values]
-
-		assert len(colnames) == len(set(colnames))
-
-		coltext = [x[1] for x in df.columns.values]
-		coldict = {x:y for x, y in zip(colnames, coltext)}
-		reversedict = {y:x for x, y in zip(colnames, coltext)}
-
-		df.columns = colnames
-
-		return df.set_index('_recordId'), coldict, reversedict
-
-
-	def _filter_imageturk_csv(self, df, coldict):
-
-		imagecols = get_filecols(df)
-		sizecols = [x.split('_')[0] + '_FILE_SIZE' for x in imagecols]
-		imagesizes = np.array([df[x].fillna(1e6).values for x in sizecols])
-
-		exclusion_criteria = [
-			df['distributionChannel'] == 'preview',
-			~df['finished'],
-			df[coldict['At birth, were you described as:']].isna(),
-			np.any(imagesizes < 1e5, axis=0)
-		]
-
-		fdf = df[~np.any(exclusion_criteria, axis=0)]
-
-		#print('The following columns have null values:')
-		#print(fdf.columns[fdf.isnull().any()].values)
-		#print(fdf.isna().sum().reset_index().values)
-
-		return fdf
-
-
-	def _get_outcomes(self, df, group, dichotomize=None):
+	def _get_outcomes(self, df, dichotomize=None):
 		return pd.DataFrame(
 			{o: const.score_outcome(
-				df, group, o, dichotomize=dichotomize) for o in const.OUTCOMES},
+				df, o, dichotomize=dichotomize) for o in const.OUTCOMES},
 			index=df.index)
-
-
-	def _get_image_filenames(self, df, verify=True):
-
-		cols = const.IMAGES
-
-		fn_dict = {c: imageturk_fn_from_qcol(
-			df, c, verify=verify) for c in cols}
-
-		return pd.DataFrame(fn_dict, index=df.index)
-
-
-def imageturk_fn_from_qcol(df, qcol, verify=True):
-	filename = replace_all(
-		df[qcol + '_FILE_NAME'],
-		['-', ' ', '(', ')', '[', ']', '~', '#'],
-		'_')
-	filename = replace_all(filename, ['.heic', '.HEIC'], '.jpg')
-	basename = df.index + '~' + filename
-	fns = df['base_dir'] + '/' + qcol + '_FILE_ID/' + basename
-	if verify:
-		for fn in fns.values:
-			if not os.path.isfile(fn):
-				print('%s not found' % fn)
-	return fns
-
-
-def replace_all(series, pattern_list, replacement):
-	s = series.copy()
-	for pattern in pattern_list:
-		s = s.str.replace(pattern, replacement)
-	return s
 
 
 def check_directories(dirlist):
