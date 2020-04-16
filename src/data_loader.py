@@ -77,6 +77,7 @@ class DataLoader:
 
 	def __init__(
 		self, n_folds=5, val_fold=3, test_fold=4,
+		partition_method='participant',
 		dichotomize=None, nrows=None, **kwargs):
 
 		self.datadir = os.path.join(
@@ -98,11 +99,38 @@ class DataLoader:
 		self.data = dict()
 		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
 
-		fold_idx = get_fold_indices(n_folds, len(self.data['all']))
+		if partition_method == 'participant':
 
-		val_idx = fold_idx[val_fold]
-		test_idx = fold_idx[test_fold]
-		train_idx = ~val_idx & ~test_idx
+			pids = self.data['all'].index.get_level_values('pid').unique()
+			fold_idx = get_fold_indices(n_folds, len(pids))
+
+			val_pidx = fold_idx[val_fold]
+			test_pidx = fold_idx[test_fold]
+			train_pidx = ~val_pidx & ~test_pidx
+
+			val_pids = pids[val_pidx]
+			test_pids = pids[test_pidx]
+			train_pids = pids[train_pidx]
+
+			val_idx = self.data['all'].index.get_level_values('pid').isin(val_pids)
+			test_idx = self.data['all'].index.get_level_values('pid').isin(test_pids)
+			train_idx = self.data['all'].index.get_level_values('pid').isin(train_pids)
+
+		elif partition_method == 'image':
+
+			fold_idx = get_fold_indices(n_folds, len(self.data['all']))
+
+			val_idx = fold_idx[val_fold]
+			test_idx = fold_idx[test_fold]
+			train_idx = ~val_idx & ~test_idx
+
+		elif partition_method == 'longitudinal':
+
+			assert False, 'Not yet implemented'
+
+		else:
+
+			assert False, 'Invalid partition method'		
 
 		self.data['train'] = self.data['all'][train_idx]
 		self.n_train = len(self.data['train'])
@@ -121,6 +149,14 @@ class DataLoader:
 
 		self.train_mean = self.data['train'][const.OUTCOMES].mean(axis=0)
 		self.train_std = self.data['train'][const.OUTCOMES].std(axis=0)
+
+		if partition_method == 'participant':
+
+			for part in ['train', 'val', 'test']:
+
+				print(
+					part + ' participants:',
+					self.data[part].index.get_level_values('pid').unique().values)
 
 
 	def get_batch(self, part, batch_size, imgfmt='array', normalize=True):
