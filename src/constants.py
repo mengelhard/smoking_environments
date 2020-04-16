@@ -31,7 +31,11 @@ IMAGECOL = 'Take a photo of your current environment'
 # 	'outside'
 # ]
 
-OUTCOMES = ['outside']
+OUTCOMES = [
+	'smoking',
+	'smoking_allowed',
+	'outside'
+]
 
 VARTYPES = {
 	'smoking': 'categorical',
