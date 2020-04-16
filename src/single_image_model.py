@@ -110,7 +110,7 @@ def main():
 	# choose final hyperparameters
 
 	hps, results = list(zip(*results_list))
-	hyperparams = hps[np.argmax(results)]
+	hyperparams = hps[np.argmin(results)]
 
 	# final run
 
