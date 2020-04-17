@@ -120,5 +120,5 @@ def getv(d, key):
 
 	except:
 
-		print('Key not found:', key)
+		print('Key', key, 'not found in dict', d)
 		return np.nan

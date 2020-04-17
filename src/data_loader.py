@@ -239,8 +239,8 @@ class DataLoader:
 
 		pid = int(d.split('_')[1].strip('{}'))
 
-		if pid in [3064]:
-			return None
+		# if pid in [3064]:
+		# 	return None
 
 		data_subdir = os.path.join(self.datadir, d)
 
