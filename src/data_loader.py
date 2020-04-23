@@ -97,7 +97,12 @@ class DataLoader:
 		all_data = self._validate_data(pd.concat(data, axis=0))
 
 		self.data = dict()
+
 		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
+
+		print('Removing nan values:', self.data['all'][const.OUTCOMES].isna().sum())
+
+		self.data['all'] = self.data['all'][~self.data['all'][const.OUTCOMES].isna().any(axis=1)]
 
 		if partition_method == 'participant':
 
