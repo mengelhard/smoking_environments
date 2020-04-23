@@ -185,8 +185,7 @@ class DataLoader:
 
 			elif imgfmt == 'array':
 
-				yield np.squeeze(images_from_files(fns, (224, 224))), \
-					self._normalize_outcomes(y)
+				yield images_from_files(fns, (224, 224)), self._normalize_outcomes(y)
 
 
 	def _normalize_outcomes(self, outcomes):
