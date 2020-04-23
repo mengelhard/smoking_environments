@@ -6,9 +6,9 @@ from PIL import Image, ExifTags#, ImageOps
 
 import constants as const
 
-VERIFY_BATCHES = True
-PLOT_OUTCOMES = True
-PLOT_SAMPLE_DATA = True
+VERIFY_BATCHES = False
+PLOT_OUTCOMES = False
+PLOT_SAMPLE_DATA = False
 
 
 def main():
