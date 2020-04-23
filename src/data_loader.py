@@ -6,8 +6,8 @@ from PIL import Image, ExifTags#, ImageOps
 
 import constants as const
 
-VERIFY_BATCHES = False
-PLOT_OUTCOMES = False
+VERIFY_BATCHES = True
+PLOT_OUTCOMES = True
 PLOT_SAMPLE_DATA = True
 
 
@@ -261,6 +261,11 @@ class DataLoader:
 		ema_smoking = ema_smoking.rename(
 			columns={'How long ago did you use a tobacco product?': \
 				'When did you last use a tobacco product?'})
+
+		craving_col = 'When you decided to use the tobacco product, how strong was your urge to use the tobacco product?'
+
+		ema_random.loc[ema_random[craving_col] == 'CONDITION_SKIPPED', craving_col] = \
+			ema_random['How strong is your current urge to smoke a cigarette?'][ema_random[craving_col] == 'CONDITION_SKIPPED']		
 
 		ema_random['imagedir'] = os.path.join(
 			data_subdir, 'Random_folder')

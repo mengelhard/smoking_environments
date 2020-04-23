@@ -17,7 +17,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 25
+NUM_TUNING_RUNS = 20
 NUM_ROWS_PER_DATAFILE = None
 
 
@@ -27,14 +27,14 @@ def main():
 	from results_writer import ResultsWriter
 
 	hyperparam_options = {
-		'n_hidden_layers': [0, 1],
-		'hidden_layer_sizes': np.arange(10, 300),
+		'n_hidden_layers': [1],
+		'hidden_layer_sizes': np.arange(50, 300),
 		'learning_rate': np.logspace(-4., -6.5),
 		'activation_fn': [tf.nn.relu, tf.nn.sigmoid],#[tf.nn.relu, tf.nn.tanh],
-		'dropout_pct': [0, .05, .1, .15, .2, .3, .5],
-		'train_mobilenet': [True, False],
+		'dropout_pct': [0, .1, .3, .5],
+		'train_mobilenet': [True],#, False],
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
-		'max_epochs_no_improve': np.arange(3),
+		'max_epochs_no_improve': np.arange(2),
 		'batch_size': [100],
 		'dichotomize': [None]
 	}
