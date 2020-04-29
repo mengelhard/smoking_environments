@@ -39,7 +39,7 @@ OUTCOMES = [
 
 VARTYPES = {
 	'smoking': 'categorical',
-	'craving': 'numeric',
+	'craving': 'categorical',
 	'smoking_allowed': 'categorical',
 	'outside': 'categorical'
 }

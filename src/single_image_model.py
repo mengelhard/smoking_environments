@@ -58,7 +58,7 @@ def main():
 		print('Running with the following hyperparams:')
 		print(hyperparams)
 
-		for val_fold in range(4):
+		for val_fold in range(1):
 
 			print('Training with val_fold =', val_fold)
 

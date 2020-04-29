@@ -26,7 +26,8 @@ def main():
 	print('Test data:')
 	print(dl.data['test'][const.OUTCOMES])
 
-	print('Value counts in training set:')
+	# print('Day counts:')
+	# print(dl.data['all'].index.get_level_values('Day').value_counts())
 
 	if PLOT_OUTCOMES:
 
@@ -77,7 +78,7 @@ class DataLoader:
 
 	def __init__(
 		self, n_folds=5, val_fold=3, test_fold=4,
-		partition_method='participant',
+		partition_method='longitudinal',
 		dichotomize=None, nrows=None, **kwargs):
 
 		self.datadir = os.path.join(
@@ -131,7 +132,14 @@ class DataLoader:
 
 		elif partition_method == 'longitudinal':
 
-			assert False, 'Not yet implemented'
+			test_idx = self.data['all'].index.get_level_values('Day') >= 10
+
+			np.random.seed(0)
+			train_or_val_idx = np.random.rand(len(self.data['all'])) < .8
+			np.random.seed()
+
+			train_idx = ~test_idx & train_or_val_idx
+			val_idx = ~test_idx & ~ train_or_val_idx
 
 		else:
 
@@ -253,15 +261,26 @@ class DataLoader:
 
 		print('Reading', data_subdir)
 
-		ema_random = pd.read_excel(os.path.join(
-			data_subdir,
-			'%i_EMA_data' % pid,
-			'Random.xlsx'))
+		ema_random = pd.read_excel(
+			os.path.join(
+				data_subdir,
+				'%i_EMA_data' % pid,
+				'Random.xlsx'),
+			parse_dates=[['Survey Submitted Date', 'Survey Submitted Time']],
+			dayfirst=True)
 
-		ema_smoking = pd.read_excel(os.path.join(
-			data_subdir,
-			'%i_EMA_data' % pid,
-			'Smoking.xlsx'))
+		ema_smoking = pd.read_excel(
+			os.path.join(
+				data_subdir,
+				'%i_EMA_data' % pid,
+				'Smoking.xlsx'),
+			parse_dates=[['Survey Submitted Date', 'Survey Submitted Time']],
+			dayfirst=True)
+
+		date_col = 'Survey Submitted Date_Survey Submitted Time'
+
+		ema_random['Day'] = (ema_random[date_col] - ema_random[date_col][0]).dt.days.astype(int)
+		ema_smoking['Day'] = (ema_smoking[date_col] - ema_smoking[date_col][0]).dt.days.astype(int)
 
 		ema_smoking = ema_smoking.rename(
 			columns={'How long ago did you use a tobacco product?': \
@@ -286,6 +305,9 @@ class DataLoader:
 			ema_smoking,
 			dichotomize=self.dichotomize)
 
+		df_random['Day'] = ema_random['Day']
+		df_smoking['Day'] = ema_smoking['Day']
+
 		df_random['filename'] = ema_random['imagedir'].str.cat(
 			ema_random[const.IMAGECOL].str.split('/').str[-1],
 			sep='/')
@@ -298,7 +320,7 @@ class DataLoader:
 
 		df['pid'] = pid
 
-		return df.set_index(['pid', df.index])
+		return df.set_index(['pid', 'Day', df.index])
 
 
 	def _validate_data(self, df):
