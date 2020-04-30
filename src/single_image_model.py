@@ -17,7 +17,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 20
+NUM_TUNING_RUNS = 50
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
 
