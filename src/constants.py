@@ -31,6 +31,8 @@ OUTCOMES = [
 	'outside'
 ]
 
+FEATURES = ['pid_idx']
+
 # OUTCOMES = [
 # 	'smoking',
 # 	'smoking_allowed',

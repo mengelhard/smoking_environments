@@ -6,9 +6,9 @@ from PIL import Image, ExifTags#, ImageOps
 
 import constants as const
 
-VERIFY_BATCHES = False
-PLOT_OUTCOMES = False
-PLOT_SAMPLE_DATA = False
+VERIFY_BATCHES = True
+PLOT_OUTCOMES = True
+PLOT_SAMPLE_DATA = True
 
 
 def main():
@@ -45,11 +45,14 @@ def main():
 
 			print('Verifying %s batches:' % part)
 
-			for i, (batch_x, batch_y) in enumerate(dl.get_batch(part, 100)):
+			for i, (batch_xi, batch_xf, batch_y) in enumerate(
+				dl.get_batch(part, 100)):
 				
 				print(
 					'Batch %i: imagefiles shape' % i,
-					np.shape(batch_x),
+					np.shape(batch_xi),
+					'and features shape',
+					np.shape(batch_xf),
 					'and outcomes shape',
 					np.shape(batch_y))
 
@@ -59,11 +62,11 @@ def main():
 
 		import matplotlib.pyplot as plt
 
-		x, y = dl.sample_data(normalize_images=False, n=8)
+		images, features, y = dl.sample_data(normalize_images=False, n=8)
 
 		fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(16, 8))
 
-		for i, (xi, yi) in enumerate(zip(x, y)):
+		for i, (xi, yi) in enumerate(zip(images, y)):
 
 			ax[i // 4, i % 4].imshow(xi.astype(int))
 			outcomes_text = ['%s: %s' % (o, str(v)) for o, v in zip(const.OUTCOMES, yi)]
@@ -86,10 +89,12 @@ class DataLoader:
 			'deeplearning', 'EMA data and Photos')
 
 		self.dichotomize = dichotomize
+		self.partition_method = partition_method
 		self.is_categorical = np.array(
 			[const.VARTYPES[o] == 'categorical' for o in const.OUTCOMES])
 
 		self.n_out = len(const.OUTCOMES)
+		self.n_features = len(const.FEATURES)
 
 		folders = [f for f in os.listdir(self.datadir) if os.path.isdir(
 			os.path.join(self.datadir, f))]
@@ -97,8 +102,14 @@ class DataLoader:
 
 		all_data = self._validate_data(pd.concat(data, axis=0))
 
-		self.data = dict()
+		pid_dict = {pid: i for i, pid in enumerate(
+			all_data.index.get_level_values('pid').unique())}
 
+		self.num_pids = len(all_data.index.get_level_values('pid').unique())
+
+		all_data['pid_idx'] = [pid_dict[x] for x in all_data.index.get_level_values('pid')]
+
+		self.data = dict()
 		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
 
 		print('Removing nan values:', self.data['all'][const.OUTCOMES].isna().sum())
@@ -185,16 +196,16 @@ class DataLoader:
 
 			data = self.data[part].iloc[ndx:endx, :]
 
-			fns, y = self._split_images_and_outcomes(data)
+			fns, x, y = self._split_images_and_outcomes(data)
 
 			if imgfmt == 'name':
 
-				yield fns, self._normalize_outcomes(y)
+				yield fns, x, self._normalize_outcomes(y)
 
 			elif imgfmt == 'array':
 
 				yield np.squeeze(images_from_files(fns, (224, 224)), axis=1), \
-					self._normalize_outcomes(y)
+					x, self._normalize_outcomes(y)
 
 
 	def _normalize_outcomes(self, outcomes):
@@ -232,7 +243,7 @@ class DataLoader:
 
 			s = self.data[part].sample(n=n)
 
-		x, y = self._split_images_and_outcomes(s)
+		fns, x, y = self._split_images_and_outcomes(s)
 
 		if normalize_outcomes:
 
@@ -240,12 +251,12 @@ class DataLoader:
 
 		if imgfmt == 'name':
 
-			return x, y
+			return fns, x, y
 
 		elif imgfmt == 'array':
 
 			return np.squeeze(images_from_files(
-				x, (224, 224), normalize=normalize_images)), y
+				fns, (224, 224), normalize=normalize_images)), x, y
 
 
 	def _read_subject_data(self, d):
@@ -337,10 +348,11 @@ class DataLoader:
 
 	def _split_images_and_outcomes(self, df):
 
-		filenames = df.drop(const.OUTCOMES, axis=1).values
+		filenames = df[['filename']].values
+		features = df[const.FEATURES].values
 		outcomes = df[const.OUTCOMES].values
 
-		return filenames, outcomes
+		return filenames, features, outcomes
 
 
 	def _get_outcomes(self, df, dichotomize=None):

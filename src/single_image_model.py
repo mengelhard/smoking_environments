@@ -19,6 +19,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 
 NUM_TUNING_RUNS = 20
 NUM_ROWS_PER_DATAFILE = None
+PARTITION_METHOD = 'longitudinal'
 
 
 def main():
@@ -28,7 +29,7 @@ def main():
 
 	hyperparam_options = {
 		'n_hidden_layers': [1],
-		'hidden_layer_sizes': np.arange(50, 300),
+		'hidden_layer_sizes': np.arange(50, 1000),
 		'learning_rate': np.logspace(-4., -6.5),
 		'activation_fn': [tf.nn.relu, tf.nn.sigmoid],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
@@ -66,7 +67,7 @@ def main():
 			dl = DataLoader(
 				val_fold=val_fold,
 				nrows=NUM_ROWS_PER_DATAFILE,
-				single_image=True,
+				partition_method=PARTITION_METHOD,
 				**hyperparams)
 			mdl = SingleImageModel(dl, **hyperparams)
 
@@ -118,7 +119,7 @@ def main():
 	dl = DataLoader(
 		val_fold=3,
 		nrows=NUM_ROWS_PER_DATAFILE,
-		single_image=True,
+		partition_method=PARTITION_METHOD,
 		**hyperparams)
 	mdl = SingleImageModel(dl, **hyperparams)
 
@@ -194,6 +195,7 @@ class SingleImageModel:
 		self.dataloader = dataloader
 
 		self.n_out = dataloader.n_out
+		self.n_features = dataloader.n_features
 
 		self.hidden_layer_sizes = [hidden_layer_sizes] * n_hidden_layers
 
@@ -324,7 +326,7 @@ class SingleImageModel:
 		results = [[] for t in tensors]
 		batch_sizes = []
 
-		for batch_idx, (xb, yb) in enumerate(self.dataloader.get_batch(
+		for batch_idx, (xib, xfb, yb) in enumerate(self.dataloader.get_batch(
 			part, batch_size)):
 
 			print('Starting %s batch %i' % (part, batch_idx))
@@ -333,15 +335,15 @@ class SingleImageModel:
 
 				results_ = sess.run(
 					tensors + [self.train_step],
-					feed_dict={self.x: xb, self.y: yb, self.is_training: True})
+					feed_dict={self.xi: xib, self.xf: xfb, self.y: yb, self.is_training: True})
 
 			else:
 
 				results_ = sess.run(
 					tensors,
-					feed_dict={self.x: xb, self.y: yb, self.is_training: False})
+					feed_dict={self.xi: xib, self.xf: xfb, self.y: yb, self.is_training: False})
 
-			batch_sizes.append(len(xb))
+			batch_sizes.append(len(xib))
 
 			for i in range(len(tensors)):
 				results[i].append(results_[i])
@@ -351,9 +353,13 @@ class SingleImageModel:
 
 	def _build_placeholders(self):
 
-		self.x = tf.compat.v1.placeholder(
+		self.xi = tf.compat.v1.placeholder(
 			dtype=tf.float32,
 			shape=(None, 224, 224, 3))
+
+		self.xf = tf.compat.v1.placeholder(
+			dtype=tf.float32,
+			shape=(None, self.n_features))
 
 		self.y = tf.compat.v1.placeholder(
 			dtype=tf.float32,
@@ -374,7 +380,7 @@ class SingleImageModel:
 		with tf.contrib.slim.arg_scope(
 			mobilenet_v2.training_scope(is_training=is_training)):
 			
-			logits, endpoints = mobilenet_v2.mobilenet(self.x)
+			logits, endpoints = mobilenet_v2.mobilenet(self.xi)
 
 		ema = tf.train.ExponentialMovingAverage(0.999)
 		self.mobilenet_saver = tf.compat.v1.train.Saver(
@@ -392,12 +398,21 @@ class SingleImageModel:
 
 		### NOTE: mobilenet v2 says logits should be LINEAR from here
 
+		if self.n_features < 0:
+
+			xf_onehot = tf.one_hot(self.xf, self.dataloader.num_pids)
+			all_features = tf.concat([self.image_features, xf_onehot], axis=1)
+
+		else:
+
+			all_features = self.image_features
+
 		with tf.compat.v1.variable_scope('outcomes'):
 
 			with tf.compat.v1.variable_scope('mlp'):
 
 				hidden_layer = mlp(
-					self.image_features,
+					all_features,
 					self.hidden_layer_sizes,
 					dropout_pct=self.dropout_pct,
 					activation_fn=self.activation_fn,
@@ -431,21 +446,23 @@ class SingleImageModel:
 
 		else:
 
-			self.loss_mse = tf.compat.v1.losses.mean_squared_error(
-				self.y,
-				self.y_pred,
-				reduction='none')
+			# self.loss_mse = tf.compat.v1.losses.mean_squared_error(
+			# 	self.y,
+			# 	self.y_pred,
+			# 	reduction='none')
+
+			self.loss_se = (self.y - self.y_pred) ** 2
 
 			self.loss_ce = tf.compat.v1.losses.sigmoid_cross_entropy(
 				multi_class_labels=self.y,
 				logits=self.y_pred,
 				reduction='none')
 
-			mse_mask = (~self.dataloader.is_categorical).astype(float)[np.newaxis, :]
+			se_mask = (~self.dataloader.is_categorical).astype(float)[np.newaxis, :]
 			ce_mask = (self.dataloader.is_categorical).astype(float)[np.newaxis, :]
 
 			self.loss = tf.reduce_mean(
-				mse_mask * self.loss_mse + ce_mask * self.loss_ce)
+				se_mask * self.loss_se + ce_mask * self.loss_ce)
 
 		if self.train_mobilenet:
 
