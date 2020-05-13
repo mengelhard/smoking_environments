@@ -125,59 +125,59 @@ def main():
 		**hyperparams)
 	mdl = SingleImageModel(dl, **hyperparams)
 
-	try:
+	#try:
 
-		with tf.compat.v1.Session() as s:
+	with tf.compat.v1.Session() as s:
 
-			train_stats, val_stats = mdl.train(s, **hyperparams)
-			y_pred, y, avg_loss, _ = mdl.predict(
-				s, 'test', hyperparams['batch_size'])
-
-			if WRITE_BOTTLENECKS:
-
-				y_pred_all, y_all, _, image_features = mdl.predict(
-					s, 'all', hyperparams['batch_size'])
+		train_stats, val_stats = mdl.train(s, **hyperparams)
+		y_pred, y, avg_loss, _ = mdl.predict(
+			s, 'test', hyperparams['batch_size'])
 
 		if WRITE_BOTTLENECKS:
 
-			df_all = dl.data['all']
-			df_all['image_features'] = list(image_features)
+			y_pred_all, y_all, _, image_features = mdl.predict(
+				s, 'all', hyperparams['batch_size'])
 
-			for i, out in enumerate(const.OUTCOMES):
+	if WRITE_BOTTLENECKS:
 
-				pred_name = out + '_predicted'
-				df_all[pred_name] = y_pred_all[:, i]
+		df_all = dl.data['all']
+		df_all['image_features'] = list(image_features)
 
-			df_all.drop('image_features', axis=1).to_csv(
-				os.path.join(rw.results_dir, 'predictions.csv'))
+		for i, out in enumerate(const.OUTCOMES):
 
-			data_dict = dl.data['all'].to_dict(orient='index')
+			pred_name = out + '_predicted'
+			df_all[pred_name] = y_pred_all[:, i]
 
-			with open(os.path.join(rw.results_dir, 'ddict.pickle'), 'wb') as handle:
-				pickle.dump(data_dict, handle)
+		df_all.drop('image_features', axis=1).to_csv(
+			os.path.join(rw.results_dir, 'predictions.csv'))
 
-		results_dict = get_results(y, y_pred, hyperparams['dichotomize'])
+		data_dict = dl.data['all'].to_dict(orient='index')
 
-		rw.write('final', {
-			'status': 'complete',
-			'fold': 4,
-			**results_dict,
-			**hyperparams})
+		with open(os.path.join(rw.results_dir, 'ddict.pickle'), 'wb') as handle:
+			pickle.dump(data_dict, handle)
 
-		rw.plot(
-			'final',
-			train_stats,
-			val_stats,
-			y_pred,
-			y,
-			const.OUTCOMES,
-			results_dict,
-			const.VARTYPES,
-			**hyperparams)
+	results_dict = get_results(y, y_pred, hyperparams['dichotomize'])
 
-	except:
+	rw.write('final', {
+		'status': 'complete',
+		'fold': 4,
+		**results_dict,
+		**hyperparams})
 
-		rw.write('final', {'status': 'failed', **hyperparams})
+	rw.plot(
+		'final',
+		train_stats,
+		val_stats,
+		y_pred,
+		y,
+		const.OUTCOMES,
+		results_dict,
+		const.VARTYPES,
+		**hyperparams)
+
+	# except:
+
+	# 	rw.write('final', {'status': 'failed', **hyperparams})
 
 
 def get_results(y_true, y_pred, dichotomize=None):
