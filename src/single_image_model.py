@@ -18,7 +18,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 1
+NUM_TUNING_RUNS = 12
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
 WRITE_BOTTLENECKS = True
@@ -151,7 +151,7 @@ def main():
 		df_all.drop('image_features', axis=1).to_csv(
 			os.path.join(rw.results_dir, 'predictions.csv'))
 
-		data_dict = dl.data['all'].to_dict(orient='index')
+		data_dict = dl.data['all'].reset_index().to_dict(orient='index')
 
 		with open(os.path.join(rw.results_dir, 'ddict.pickle'), 'wb') as handle:
 			pickle.dump(data_dict, handle)
