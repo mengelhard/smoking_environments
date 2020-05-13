@@ -3,7 +3,8 @@ import tensorflow as tf
 import sys
 import os
 import datetime
-from sklearn.metrics import roc_auc_score 
+from sklearn.metrics import roc_auc_score
+import pickle
 
 import constants as const
 
@@ -17,9 +18,10 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 50
+NUM_TUNING_RUNS = 1
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
+WRITE_BOTTLENECKS = True
 
 
 def main():
@@ -30,8 +32,8 @@ def main():
 	hyperparam_options = {
 		'n_hidden_layers': [1],
 		'hidden_layer_sizes': np.arange(50, 1000),
-		'learning_rate': np.logspace(-4., -6.5),
-		'activation_fn': [tf.nn.relu, tf.nn.sigmoid],#[tf.nn.relu, tf.nn.tanh],
+		'learning_rate': [1e-5],#np.logspace(-4., -6.5),
+		'activation_fn': [tf.nn.sigmoid],#[tf.nn.relu, tf.nn.sigmoid],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
 		'train_mobilenet': [True],#, False],
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
@@ -78,7 +80,7 @@ def main():
 			with tf.compat.v1.Session() as s:
 
 				train_stats, val_stats = mdl.train(s, **hyperparams)
-				y_pred, y, avg_val_loss = mdl.predict(s, 'val', hyperparams['batch_size'])
+				y_pred, y, avg_val_loss, _ = mdl.predict(s, 'val', hyperparams['batch_size'])
 
 			results_dict = get_results(y, y_pred, hyperparams['dichotomize'])
 
@@ -128,7 +130,31 @@ def main():
 		with tf.compat.v1.Session() as s:
 
 			train_stats, val_stats = mdl.train(s, **hyperparams)
-			y_pred, y, avg_loss = mdl.predict(s, 'test', hyperparams['batch_size'])
+			y_pred, y, avg_loss, _ = mdl.predict(
+				s, 'test', hyperparams['batch_size'])
+
+			if WRITE_BOTTLENECKS:
+
+				y_pred_all, y_all, _, image_features = mdl.predict(
+					s, 'all', hyperparams['batch_size'])
+
+		if WRITE_BOTTLENECKS:
+
+			df_all = dl.data['all']
+			df_all['image_features'] = list(image_features)
+
+			for i, out in enumerate(const.OUTCOMES):
+
+				pred_name = out + '_predicted'
+				df_all[pred_name] = y_pred_all[:, i]
+
+			df_all.drop('image_features', axis=1).to_csv(
+				os.path.join(rw.results_dir, 'predictions.csv'))
+
+			data_dict = dl.data['all'].to_dict(orient='index')
+
+			with open(os.path.join(rw.results_dir, 'ddict.pickle'), 'wb') as handle:
+				pickle.dump(data_dict, handle)
 
 		results_dict = get_results(y, y_pred, hyperparams['dichotomize'])
 
@@ -296,9 +322,9 @@ class SingleImageModel:
 
 		assert part in ['all', 'train', 'val', 'test']
 
-		batch_sizes, y_pred, y_prob_pred, y, loss = self._run_batches(
+		batch_sizes, y_pred, y_prob_pred, y, loss, image_features = self._run_batches(
 			sess,
-			[self.y_pred, self.y_prob_pred, self.y, self.loss],
+			[self.y_pred, self.y_prob_pred, self.y, self.loss, self.image_features],
 			part,
 			batch_size,
 			train=False)
@@ -307,18 +333,18 @@ class SingleImageModel:
 
 		if self.dataloader.dichotomize == True:
 
-			return y_prob_pred, y, avg_loss
+			return y_prob_pred, y, avg_loss, image_features
 
 		elif self.dataloader.dichotomize == False:
 
-			return y_pred, y, avg_loss
+			return y_pred, y, avg_loss, image_features
 
 		else:
 
 			cat_cols = self.dataloader.is_categorical
 			y_pred[:, cat_cols] = y_prob_pred[:, cat_cols]
 
-			return y_pred, y, avg_loss
+			return y_pred, y, avg_loss, image_features
 
 
 	def _run_batches(self, sess, tensors, part, batch_size, train=False):
