@@ -426,9 +426,10 @@ class SingleImageModel:
 
 		if self.n_features > 0:
 
-			xf_onehot = tf.squeeze(tf.one_hot(
+			xf_onehot = tf.one_hot(
 				tf.cast(self.xf, dtype=tf.int32),
-				self.dataloader.num_pids))
+				self.dataloader.num_pids)
+			xf_onehot = tf.reshape(xf_onehot, shape=(-1, self.dataloader.num_pids))
 			all_features = tf.concat([self.image_features, xf_onehot], axis=1)
 
 		else:
