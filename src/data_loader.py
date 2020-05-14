@@ -316,6 +316,9 @@ class DataLoader:
 			ema_smoking,
 			dichotomize=self.dichotomize)
 
+		df_random['prompt'] = 'random'
+		df_smoking['prompt'] = 'smoking'
+
 		df_random['Day'] = ema_random['Day']
 		df_smoking['Day'] = ema_smoking['Day']
 
@@ -331,7 +334,7 @@ class DataLoader:
 
 		df['pid'] = pid
 
-		return df.set_index(['pid', 'Day', df.index])
+		return df.set_index(['pid', 'prompt', 'Day', df.index])
 
 
 	def _validate_data(self, df):

@@ -424,7 +424,7 @@ class SingleImageModel:
 
 		### NOTE: mobilenet v2 says logits should be LINEAR from here
 
-		if self.n_features < 0:
+		if self.n_features > 0:
 
 			xf_onehot = tf.one_hot(self.xf, self.dataloader.num_pids)
 			all_features = tf.concat([self.image_features, xf_onehot], axis=1)
