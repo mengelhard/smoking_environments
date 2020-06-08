@@ -152,6 +152,9 @@ def main():
 				open('../saved_models/quiteye.tflite', 'wb').write(
 					tflite_model)
 
+			except:
+				pass
+
 	if WRITE_BOTTLENECKS:
 
 		df_all = dl.data['all']
@@ -469,7 +472,7 @@ class SingleImageModel:
 
 				features = mlp(
 					self.xf,
-					10,
+					[10],
 					dropout_pct=0.,
 					activation_fn=None,
 					training=self.is_training)
