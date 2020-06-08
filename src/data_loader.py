@@ -94,13 +94,17 @@ class DataLoader:
 			[const.VARTYPES[o] == 'categorical' for o in const.OUTCOMES])
 
 		self.n_out = len(const.OUTCOMES)
-		self.n_features = len(const.FEATURES)
+
+		features = self._load_features()
+		self.n_features = len(features.columns)
+		self.feature_cols = features.columns.tolist()
 
 		folders = [f for f in os.listdir(self.datadir) if os.path.isdir(
 			os.path.join(self.datadir, f))]
 		data = [self._read_subject_data(d) for d in folders]
 
 		all_data = self._validate_data(pd.concat(data, axis=0))
+		all_data = all_data.join(features, how='left')
 
 		pid_dict = {pid: i for i, pid in enumerate(
 			all_data.index.get_level_values('pid').unique())}
@@ -112,9 +116,11 @@ class DataLoader:
 		self.data = dict()
 		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
 
-		print('Removing nan values:', self.data['all'][const.OUTCOMES].isna().sum())
+		print(
+			'Removing nan values:',
+			self.data['all'][const.OUTCOMES + self.feature_cols].isna().sum())
 
-		self.data['all'] = self.data['all'][~self.data['all'][const.OUTCOMES].isna().any(axis=1)]
+		self.data['all'] = self.data['all'][~self.data['all'][const.OUTCOMES + self.feature_cols].isna().any(axis=1)]
 
 		if partition_method == 'participant':
 
@@ -206,6 +212,25 @@ class DataLoader:
 
 				yield np.squeeze(images_from_files(fns, (224, 224)), axis=1), \
 					x, self._normalize_outcomes(y)
+
+
+	def _load_features(self):
+
+		f1 = pd.read_csv(os.path.join(
+			self.datadir,
+			'baseline_data.csv')).set_index('pid')
+
+		f2 = pd.read_excel(os.path.join(
+			self.datadir,
+			'DL Demographics.xlsx'))
+
+		f2['race'] = ((f2['Race'] == 'White') & (f2['Ethnicity'] != 'Hispanic')).astype(float)
+		f2['sex'] = (f2['Gender'] == 'Female').astype(float)
+		f2['pid'] = f2['Subject ID assigned']
+
+		f2 = f2[['pid', 'sex', 'race']].set_index('pid')
+
+		return f1.join(f2, how='left')
 
 
 	def _normalize_outcomes(self, outcomes):
@@ -352,7 +377,7 @@ class DataLoader:
 	def _split_images_and_outcomes(self, df):
 
 		filenames = df[['filename']].values
-		features = df[const.FEATURES].values
+		features = df[self.feature_cols].values
 		outcomes = df[const.OUTCOMES].values
 
 		return filenames, features, outcomes

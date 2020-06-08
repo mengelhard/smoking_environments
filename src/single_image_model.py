@@ -22,6 +22,7 @@ NUM_TUNING_RUNS = 30
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
 WRITE_BOTTLENECKS = True
+SAVE_AS_TFLITE = True
 
 
 def main():
@@ -137,6 +138,19 @@ def main():
 
 			y_pred_all, y_all, _, image_features = mdl.predict(
 				s, 'all', hyperparams['batch_size'])
+
+		if SAVE_AS_TFLITE: # save model as tflite
+
+			in_tensors = [mdl.xi, mdl.xf, mdl.is_training]
+			out_tensors = [mdl.y]
+
+			try:
+
+				converter = tf.lite.TFLiteConverter.from_session(
+					s, in_tensors, out_tensors)
+				tflite_model = converter.convert()
+				open('../saved_models/quiteye.tflite', 'wb').write(
+					tflite_model)
 
 	if WRITE_BOTTLENECKS:
 
@@ -426,11 +440,15 @@ class SingleImageModel:
 
 		if self.n_features > 0:
 
-			xf_onehot = tf.one_hot(
-				tf.cast(self.xf, dtype=tf.int32),
-				self.dataloader.num_pids)
-			xf_onehot = tf.reshape(xf_onehot, shape=(-1, self.dataloader.num_pids))
-			all_features = tf.concat([self.image_features, xf_onehot], axis=1)
+			# this is code for categorical embeddings of pids
+
+			# xf_onehot = tf.one_hot(
+			# 	tf.cast(self.xf, dtype=tf.int32),
+			# 	self.dataloader.num_pids)
+			# xf_onehot = tf.reshape(xf_onehot, shape=(-1, self.dataloader.num_pids))
+			# all_features = tf.concat([self.image_features, xf_onehot], axis=1)
+
+			all_features = tf.concat([self.image_features, self.xf], axis=1)
 
 		else:
 
