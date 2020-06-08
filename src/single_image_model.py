@@ -39,7 +39,7 @@ def main():
 		'train_mobilenet': [True],#, False],
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
 		'max_epochs_no_improve': np.arange(2),
-		'batch_size': [100],
+		'batch_size': [50],
 		'dichotomize': [None]
 	}
 
