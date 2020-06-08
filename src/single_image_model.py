@@ -258,7 +258,7 @@ class SingleImageModel:
 
 	def train(
 		self, sess,
-		max_epochs=30,
+		max_epochs=100,
 		max_epochs_no_improve=2,
 		batch_size=100,
 		**kwargs):
