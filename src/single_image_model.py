@@ -438,32 +438,43 @@ class SingleImageModel:
 
 		### NOTE: mobilenet v2 says logits should be LINEAR from here
 
-		if self.n_features > 0:
+		# if self.n_features > 0:
 
-			# this is code for categorical embeddings of pids
+		# 	# this is code for categorical embeddings of pids
 
-			# xf_onehot = tf.one_hot(
-			# 	tf.cast(self.xf, dtype=tf.int32),
-			# 	self.dataloader.num_pids)
-			# xf_onehot = tf.reshape(xf_onehot, shape=(-1, self.dataloader.num_pids))
-			# all_features = tf.concat([self.image_features, xf_onehot], axis=1)
+		# 	# xf_onehot = tf.one_hot(
+		# 	# 	tf.cast(self.xf, dtype=tf.int32),
+		# 	# 	self.dataloader.num_pids)
+		# 	# xf_onehot = tf.reshape(xf_onehot, shape=(-1, self.dataloader.num_pids))
+		# 	# all_features = tf.concat([self.image_features, xf_onehot], axis=1)
 
-			all_features = tf.concat([self.image_features, self.xf], axis=1)
+		# 	all_features = tf.concat([self.image_features, self.xf], axis=1)
 
-		else:
+		# else:
 
-			all_features = self.image_features
+		# 	all_features = self.image_features
 
 		with tf.compat.v1.variable_scope('outcomes'):
 
 			with tf.compat.v1.variable_scope('mlp'):
 
 				hidden_layer = mlp(
-					all_features,
+					self.image_features, #all_features
 					self.hidden_layer_sizes,
 					dropout_pct=self.dropout_pct,
 					activation_fn=self.activation_fn,
 					training=self.is_training)
+
+			with tf.compat.v1.variable_scope('features_mlp'):
+
+				features = mlp(
+					self.xf,
+					10,
+					dropout_pct=0.,
+					activation_fn=None,
+					training=self.is_training)
+
+			hidden_layer = tf.concat([hidden_layer, features], axis=1)
 
 			with tf.compat.v1.variable_scope('linear'):
 
