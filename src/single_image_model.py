@@ -35,7 +35,7 @@ def main():
 		'n_hidden_layers': [1],
 		'hidden_layer_sizes': [500],#np.arange(50, 1000),
 		'learning_rate': np.logspace(-5., -6),
-		'activation_fn': [tf.nn.relu, tf.nn.sigmoid, tf.nn.elu],#[tf.nn.relu, tf.nn.tanh],
+		'activation_fn': [tf.nn.relu, tf.nn.sigmoid, tf.nn.elu, None],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
 		'train_mobilenet': [True],#, False],
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
