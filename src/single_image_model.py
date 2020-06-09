@@ -33,9 +33,9 @@ def main():
 
 	hyperparam_options = {
 		'n_hidden_layers': [1],
-		'hidden_layer_sizes': np.arange(50, 1000),
-		'learning_rate': [1e-5, 3e-6, 1e-6],#np.logspace(-4., -6.5),
-		'activation_fn': [tf.nn.relu, tf.nn.sigmoid],#[tf.nn.relu, tf.nn.tanh],
+		'hidden_layer_sizes': [500],#np.arange(50, 1000),
+		'learning_rate': np.logspace(-5., -6),
+		'activation_fn': [tf.nn.relu, tf.nn.sigmoid, tf.nn.elu],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
 		'train_mobilenet': [True],#, False],
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
@@ -463,13 +463,15 @@ class SingleImageModel:
 
 		### NOTE: mobilenet v2 says logits should be LINEAR from here
 
-		if self.n_image_features > 0:
+		# if self.n_image_features > 0:
 
-			image_features = tf.concat([self.image_features, self.xif], axis=1)
+		# 	image_features = tf.concat([self.image_features, self.xif], axis=1)
 
-		else:
+		# else:
 
-			image_features = self.image_features
+		# 	image_features = self.image_features
+
+		image_features = tf.concat([self.image_features, self.xif, self.xf], axis=1)
 
 		with tf.compat.v1.variable_scope('outcomes'):
 
@@ -482,25 +484,25 @@ class SingleImageModel:
 					activation_fn=self.activation_fn,
 					training=self.is_training)
 
-			with tf.compat.v1.variable_scope('subject_embeddings'):
+			# with tf.compat.v1.variable_scope('subject_embeddings'):
 
-				subject_embeddings = mlp(
-					self.xf,
-					[self.subject_embedding_size],
-					dropout_pct=0.,
-					activation_fn=None,
-					training=self.is_training)
+			# 	subject_embeddings = mlp(
+			# 		self.xf,
+			# 		[self.subject_embedding_size],
+			# 		dropout_pct=0.,
+			# 		activation_fn=None,
+			# 		training=self.is_training)
 
-			with tf.compat.v1.variable_scope('subject_features'):
+			# with tf.compat.v1.variable_scope('subject_features'):
 
-				subject_features = mlp(
-					subject_embeddings,
-					[self.hidden_layer_sizes[-1]],
-					dropout_pct=0.,
-					activation_fn=None,
-					training=self.is_training)
+			# 	subject_features = mlp(
+			# 		subject_embeddings,
+			# 		[self.hidden_layer_sizes[-1]],
+			# 		dropout_pct=0.,
+			# 		activation_fn=None,
+			# 		training=self.is_training)
 
-				hidden_layer = hidden_layer + subject_features
+			# 	hidden_layer = hidden_layer + subject_features
 
 			with tf.compat.v1.variable_scope('linear'):
 
