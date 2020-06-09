@@ -506,6 +506,10 @@ class SingleImageModel:
 
 			with tf.compat.v1.variable_scope('linear'):
 
+				# add features again, because they may directly affect outcomes
+
+				hidden_layer = tf.concat([hidden_layer, self.xif, self.xf], axis=1)
+
 				self.y_pred = mlp(
 					hidden_layer,
 					[self.n_out],
