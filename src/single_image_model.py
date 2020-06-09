@@ -21,6 +21,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 NUM_TUNING_RUNS = 30
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
+PERSONALIZE = True
 WRITE_BOTTLENECKS = True
 SAVE_AS_TFLITE = True
 
@@ -40,7 +41,8 @@ def main():
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
 		'max_epochs_no_improve': np.arange(2),
 		'batch_size': [50],
-		'dichotomize': [None]
+		'dichotomize': [None],
+		'subject_embedding_size': np.arange(20) + 10
 	}
 
 	resultcols = ['status']
@@ -71,6 +73,7 @@ def main():
 				val_fold=val_fold,
 				nrows=NUM_ROWS_PER_DATAFILE,
 				partition_method=PARTITION_METHOD,
+				pid_features=PERSONALIZE,
 				**hyperparams)
 			mdl = SingleImageModel(dl, **hyperparams)
 
@@ -123,6 +126,7 @@ def main():
 		val_fold=3,
 		nrows=NUM_ROWS_PER_DATAFILE,
 		partition_method=PARTITION_METHOD,
+		pid_features=PERSONALIZE,
 		**hyperparams)
 	mdl = SingleImageModel(dl, **hyperparams)
 
@@ -233,12 +237,14 @@ class SingleImageModel:
 		dropout_pct=.5,
 		train_mobilenet=False,
 		mobilenet_endpoint='global_pool',
+		subject_embedding_size=10,
 		**kwargs):
 
 		self.dataloader = dataloader
 
 		self.n_out = dataloader.n_out
-		self.n_features = dataloader.n_features
+		self.n_subject_features = dataloader.n_subject_features
+		self.n_image_features = dataloader.n_image_features
 
 		self.hidden_layer_sizes = [hidden_layer_sizes] * n_hidden_layers
 
@@ -249,6 +255,8 @@ class SingleImageModel:
 		self.train_mobilenet = train_mobilenet
 
 		self.mobilenet_endpoint = mobilenet_endpoint
+
+		self.subject_embedding_size = subject_embedding_size
 
 		self._build_placeholders()
 		self._build_mobilenet()
@@ -369,7 +377,7 @@ class SingleImageModel:
 		results = [[] for t in tensors]
 		batch_sizes = []
 
-		for batch_idx, (xib, xfb, yb) in enumerate(self.dataloader.get_batch(
+		for batch_idx, (xib, xifb, xfb, yb) in enumerate(self.dataloader.get_batch(
 			part, batch_size)):
 
 			print('Starting %s batch %i' % (part, batch_idx))
@@ -378,13 +386,23 @@ class SingleImageModel:
 
 				results_ = sess.run(
 					tensors + [self.train_step],
-					feed_dict={self.xi: xib, self.xf: xfb, self.y: yb, self.is_training: True})
+					feed_dict={
+						self.xi: xib,
+						self.xif: xifb,
+						self.xf: xfb,
+						self.y: yb,
+						self.is_training: True})
 
 			else:
 
 				results_ = sess.run(
 					tensors,
-					feed_dict={self.xi: xib, self.xf: xfb, self.y: yb, self.is_training: False})
+					feed_dict={
+						self.xi: xib,
+						self.xif: xifb,
+						self.xf: xfb,
+						self.y: yb,
+						self.is_training: False})
 
 			batch_sizes.append(len(xib))
 
@@ -400,9 +418,13 @@ class SingleImageModel:
 			dtype=tf.float32,
 			shape=(None, 224, 224, 3))
 
+		self.xif = tf.compat.v1.placeholder(
+			dtype=tf.float32,
+			shape=(None, self.n_image_features))
+
 		self.xf = tf.compat.v1.placeholder(
 			dtype=tf.float32,
-			shape=(None, self.n_features))
+			shape=(None, self.n_subject_features))
 
 		self.y = tf.compat.v1.placeholder(
 			dtype=tf.float32,
@@ -441,43 +463,44 @@ class SingleImageModel:
 
 		### NOTE: mobilenet v2 says logits should be LINEAR from here
 
-		# if self.n_features > 0:
+		if self.n_image_features > 0:
 
-		# 	# this is code for categorical embeddings of pids
+			image_features = tf.concat([self.image_features, self.xif], axis=1)
 
-		# 	# xf_onehot = tf.one_hot(
-		# 	# 	tf.cast(self.xf, dtype=tf.int32),
-		# 	# 	self.dataloader.num_pids)
-		# 	# xf_onehot = tf.reshape(xf_onehot, shape=(-1, self.dataloader.num_pids))
-		# 	# all_features = tf.concat([self.image_features, xf_onehot], axis=1)
+		else:
 
-		# 	all_features = tf.concat([self.image_features, self.xf], axis=1)
-
-		# else:
-
-		# 	all_features = self.image_features
+			image_features = self.image_features
 
 		with tf.compat.v1.variable_scope('outcomes'):
 
 			with tf.compat.v1.variable_scope('mlp'):
 
 				hidden_layer = mlp(
-					self.image_features, #all_features
+					image_features,
 					self.hidden_layer_sizes,
 					dropout_pct=self.dropout_pct,
 					activation_fn=self.activation_fn,
 					training=self.is_training)
 
-			with tf.compat.v1.variable_scope('features_mlp'):
+			with tf.compat.v1.variable_scope('subject_embeddings'):
 
-				features = mlp(
+				subject_embeddings = mlp(
 					self.xf,
-					[10],
+					[self.subject_embedding_size],
 					dropout_pct=0.,
 					activation_fn=None,
 					training=self.is_training)
 
-			hidden_layer = tf.concat([hidden_layer, features], axis=1)
+			with tf.compat.v1.variable_scope('subject_features'):
+
+				subject_features = mlp(
+					subject_embeddings,
+					[self.hidden_layer_sizes[-1]],
+					dropout_pct=0.,
+					activation_fn=None,
+					training=self.is_training)
+
+				hidden_layer = hidden_layer + subject_features
 
 			with tf.compat.v1.variable_scope('linear'):
 

@@ -45,14 +45,16 @@ def main():
 
 			print('Verifying %s batches:' % part)
 
-			for i, (batch_xi, batch_xf, batch_y) in enumerate(
+			for i, (batch_x, batch_xi, batch_xs, batch_y) in enumerate(
 				dl.get_batch(part, 100)):
 				
 				print(
 					'Batch %i: imagefiles shape' % i,
+					np.shape(batch_x),
+					'and image features shape',
 					np.shape(batch_xi),
-					'and features shape',
-					np.shape(batch_xf),
+					'and subject features shape',
+					np.shape(batch_xs),
 					'and outcomes shape',
 					np.shape(batch_y))
 
@@ -62,7 +64,8 @@ def main():
 
 		import matplotlib.pyplot as plt
 
-		images, features, y = dl.sample_data(normalize_images=False, n=8)
+		images, image_features, subject_features, y = dl.sample_data(
+			normalize_images=False, n=8)
 
 		fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(16, 8))
 
@@ -82,6 +85,7 @@ class DataLoader:
 	def __init__(
 		self, n_folds=5, val_fold=3, test_fold=4,
 		partition_method='longitudinal',
+		pid_features=True,
 		dichotomize=None, nrows=None, **kwargs):
 
 		self.datadir = os.path.join(
@@ -95,32 +99,55 @@ class DataLoader:
 
 		self.n_out = len(const.OUTCOMES)
 
-		features = self._load_features()
-		self.n_features = len(features.columns)
-		self.feature_cols = features.columns.tolist()
+		subject_features = self._load_subject_features()
+		self.subject_feature_cols = subject_features.columns.tolist()
+		self.n_subject_features = len(self.subject_feature_cols)
+
+		self.n_image_features = 5
+		self.image_feature_cols = ['weekend', 'night', 'morning', 'afternoon', 'evening']
 
 		folders = [f for f in os.listdir(self.datadir) if os.path.isdir(
 			os.path.join(self.datadir, f))]
 		data = [self._read_subject_data(d) for d in folders]
 
 		all_data = self._validate_data(pd.concat(data, axis=0))
-		all_data = all_data.join(features, how='left')
+		all_data = all_data.join(subject_features, how='left')
 
-		pid_dict = {pid: i for i, pid in enumerate(
-			all_data.index.get_level_values('pid').unique())}
+		if pid_features:
 
-		self.num_pids = len(all_data.index.get_level_values('pid').unique())
+			pid_series = all_data.index.get_level_values('pid')
 
-		all_data['pid_idx'] = [pid_dict[x] for x in all_data.index.get_level_values('pid')]
+			for pid in pid_series.unique():
+
+				all_data[pid] = (pid_series == pid).astype(float)
+
+			self.subject_feature_cols += list(pid_series.unique())
+			self.n_subject_features = len(self.subject_feature_cols)
+
+			# pid_onehot = pd.get_dummies(
+			# 	all_data.index.get_level_values('pid').astype('category'),
+			# 	drop_first=False,
+			# 	dtype=float)
+
+			# self.subject_feature_cols += pid_onehot.columns.tolist()
+
+			# all_data = pd.concat(
+			# 	[all_data, pid_onehot.reset_index(drop=True)],
+			# 	axis=1)
 
 		self.data = dict()
 		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
 
+		self.data['all'].to_csv('../results/all_data.csv')
+
 		print(
 			'Removing nan values:',
-			self.data['all'][const.OUTCOMES + self.feature_cols].isna().sum())
+			self.data['all'][const.OUTCOMES + self.subject_feature_cols].isna().sum())
 
-		self.data['all'] = self.data['all'][~self.data['all'][const.OUTCOMES + self.feature_cols].isna().any(axis=1)]
+		na_rows = self.data['all'][const.OUTCOMES + self.subject_feature_cols].isna().any(axis=1)
+		self.data['all'] = self.data['all'][~na_rows]
+
+		#TODO add time of day features
 
 		if partition_method == 'participant':
 
@@ -202,19 +229,19 @@ class DataLoader:
 
 			data = self.data[part].iloc[ndx:endx, :]
 
-			fns, x, y = self._split_images_and_outcomes(data)
+			fns, xi, xs, y = self._split_images_and_outcomes(data)
 
 			if imgfmt == 'name':
 
-				yield fns, x, self._normalize_outcomes(y)
+				yield fns, xi, xs, self._normalize_outcomes(y)
 
 			elif imgfmt == 'array':
 
 				yield np.squeeze(images_from_files(fns, (224, 224)), axis=1), \
-					x, self._normalize_outcomes(y)
+					xi, xs, self._normalize_outcomes(y)
 
 
-	def _load_features(self):
+	def _load_subject_features(self):
 
 		f1 = pd.read_csv(os.path.join(
 			self.datadir,
@@ -268,7 +295,7 @@ class DataLoader:
 
 			s = self.data[part].sample(n=n)
 
-		fns, x, y = self._split_images_and_outcomes(s)
+		fns, xi, xs, y = self._split_images_and_outcomes(s)
 
 		if normalize_outcomes:
 
@@ -276,12 +303,12 @@ class DataLoader:
 
 		if imgfmt == 'name':
 
-			return fns, x, y
+			return fns, xi, xs, y
 
 		elif imgfmt == 'array':
 
 			return np.squeeze(images_from_files(
-				fns, (224, 224), normalize=normalize_images)), x, y
+				fns, (224, 224), normalize=normalize_images)), xi, xs, y
 
 
 	def _read_subject_data(self, d):
@@ -347,6 +374,9 @@ class DataLoader:
 		df_random['Day'] = ema_random['Day']
 		df_smoking['Day'] = ema_smoking['Day']
 
+		df_random['datetime'] = ema_random[date_col]
+		df_smoking['datetime'] = ema_smoking[date_col]
+
 		df_random['filename'] = ema_random['imagedir'].str.cat(
 			ema_random[const.IMAGECOL].str.split('/').str[-1],
 			sep='/')
@@ -356,6 +386,15 @@ class DataLoader:
 			sep='/')
 
 		df = pd.concat([df_random, df_smoking], axis=0)
+
+		df['weekend'] = (df['datetime'].dt.weekday > 4).astype(float)
+		df['part_of_day'] = df['datetime'].dt.hour // 6
+		df['night'] = (df['part_of_day'] == 0).astype(float)
+		df['morning'] = (df['part_of_day'] == 1).astype(float)
+		df['afternoon'] = (df['part_of_day'] == 2).astype(float)
+		df['evening'] = (df['part_of_day'] == 3).astype(float)
+
+		df = df.drop(['datetime', 'part_of_day'], axis=1)
 
 		df['pid'] = pid
 
@@ -377,10 +416,11 @@ class DataLoader:
 	def _split_images_and_outcomes(self, df):
 
 		filenames = df[['filename']].values
-		features = df[self.feature_cols].values
+		image_features = df[self.image_feature_cols].values
+		subject_features = df[self.subject_feature_cols].values
 		outcomes = df[const.OUTCOMES].values
 
-		return filenames, features, outcomes
+		return filenames, image_features, subject_features, outcomes
 
 
 	def _get_outcomes(self, df, dichotomize=None):
