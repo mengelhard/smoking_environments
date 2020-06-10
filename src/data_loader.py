@@ -6,9 +6,9 @@ from PIL import Image, ExifTags#, ImageOps
 
 import constants as const
 
-VERIFY_BATCHES = True
-PLOT_OUTCOMES = True
+VERIFY_BATCHES = False
 PLOT_SAMPLE_DATA = True
+NUMERIC_COLS = ['craving', 'minutes_since_last_smoke']
 
 
 def main():
@@ -26,35 +26,20 @@ def main():
 	print('Test data:')
 	print(dl.data['test'][const.OUTCOMES])
 
-	# print('Day counts:')
-	# print(dl.data['all'].index.get_level_values('Day').value_counts())
-
-	if PLOT_OUTCOMES:
-
-		import matplotlib.pyplot as plt
-
-		for o in const.OUTCOMES:
-
-			plt.hist(dl.data['train'][o].astype(float))
-			plt.savefig('../results/%s_hist.png' % o)
-			plt.close()
-
 	if VERIFY_BATCHES:
 
 		for part in ['train', 'val', 'test']:
 
 			print('Verifying %s batches:' % part)
 
-			for i, (batch_x, batch_xi, batch_xs, batch_y) in enumerate(
+			for i, (batch_images, batch_x, batch_y) in enumerate(
 				dl.get_batch(part, 100)):
 				
 				print(
 					'Batch %i: imagefiles shape' % i,
+					np.shape(batch_images),
+					'and features shape',
 					np.shape(batch_x),
-					'and image features shape',
-					np.shape(batch_xi),
-					'and subject features shape',
-					np.shape(batch_xs),
 					'and outcomes shape',
 					np.shape(batch_y))
 
@@ -64,7 +49,7 @@ def main():
 
 		import matplotlib.pyplot as plt
 
-		images, image_features, subject_features, y = dl.sample_data(
+		images, features, y = dl.sample_data(
 			normalize_images=False, n=8)
 
 		fig, ax = plt.subplots(nrows=2, ncols=4, figsize=(16, 8))
@@ -84,34 +69,37 @@ class DataLoader:
 
 	def __init__(
 		self, n_folds=5, val_fold=3, test_fold=4,
-		partition_method='longitudinal',
+		partition_method='participant',
 		pid_features=True,
-		dichotomize=None, nrows=None, **kwargs):
+		nrows=None, **kwargs):
 
 		self.datadir = os.path.join(
-			check_directories(const.DATA_DIRS),
-			'deeplearning', 'EMA data and Photos')
+			const.DATA_DIR,
+			'deeplearning',
+			'prepdata')
 
-		self.dichotomize = dichotomize
+		self.imagedir = os.path.join(
+			const.DATA_DIR,
+			'deeplearning',
+			'EMA data and Photos')
+
 		self.partition_method = partition_method
 		self.is_categorical = np.array(
 			[const.VARTYPES[o] == 'categorical' for o in const.OUTCOMES])
 
 		self.n_out = len(const.OUTCOMES)
 
-		subject_features = self._load_subject_features()
-		self.subject_feature_cols = subject_features.columns.tolist()
-		self.n_subject_features = len(self.subject_feature_cols)
+		all_data = pd.read_csv(os.path.join(
+			self.datadir,
+			'all_data.csv')).set_index(['pid', 'prompt', 'index'])
 
-		self.n_image_features = 5
-		self.image_feature_cols = ['weekend', 'night', 'morning', 'afternoon', 'evening']
+		na_rows = all_data[const.OUTCOMES + ['filename']].isna().any(axis=1)
+		all_data = all_data[~na_rows]
+		print('Removed %i rows with missing filenames or outcomes' % sum(na_rows))
 
-		folders = [f for f in os.listdir(self.datadir) if os.path.isdir(
-			os.path.join(self.datadir, f))]
-		data = [self._read_subject_data(d) for d in folders]
+		all_data['filename'] = all_data['filename'].apply(lambda x: os.path.join(self.imagedir, x))
 
-		all_data = self._validate_data(pd.concat(data, axis=0))
-		all_data = all_data.join(subject_features, how='left')
+		all_data = self._remove_missing_files(all_data)
 
 		if pid_features:
 
@@ -121,33 +109,11 @@ class DataLoader:
 
 				all_data[pid] = (pid_series == pid).astype(float)
 
-			self.subject_feature_cols += list(pid_series.unique())
-			self.n_subject_features = len(self.subject_feature_cols)
-
-			# pid_onehot = pd.get_dummies(
-			# 	all_data.index.get_level_values('pid').astype('category'),
-			# 	drop_first=False,
-			# 	dtype=float)
-
-			# self.subject_feature_cols += pid_onehot.columns.tolist()
-
-			# all_data = pd.concat(
-			# 	[all_data, pid_onehot.reset_index(drop=True)],
-			# 	axis=1)
+		self.feature_cols = [x for x in all_data.columns if not x in const.OUTCOMES]
+		self.n_features = len(self.feature_cols)
 
 		self.data = dict()
 		self.data['all'] = all_data.sample(frac=1, random_state=0)# shuffle rows
-
-		self.data['all'].to_csv('../results/all_data.csv')
-
-		print(
-			'Removing nan values:',
-			self.data['all'][const.OUTCOMES + self.subject_feature_cols].isna().sum())
-
-		na_rows = self.data['all'][const.OUTCOMES + self.subject_feature_cols].isna().any(axis=1)
-		self.data['all'] = self.data['all'][~na_rows]
-
-		#TODO add time of day features
 
 		if partition_method == 'participant':
 
@@ -207,13 +173,7 @@ class DataLoader:
 		self.train_mean = self.data['train'][const.OUTCOMES].mean(axis=0)
 		self.train_std = self.data['train'][const.OUTCOMES].std(axis=0)
 
-		if partition_method == 'participant':
-
-			for part in ['train', 'val', 'test']:
-
-				print(
-					part + ' participants:',
-					self.data[part].index.get_level_values('pid').unique().values)
+		self._normalize_numeric()
 
 
 	def get_batch(self, part, batch_size, imgfmt='array', normalize=True):
@@ -229,60 +189,18 @@ class DataLoader:
 
 			data = self.data[part].iloc[ndx:endx, :]
 
-			fns, xi, xs, y = self._split_images_and_outcomes(data)
+			fns, x, y = self._split_data(data)
 
 			if imgfmt == 'name':
 
-				yield fns, xi, xs, self._normalize_outcomes(y)
+				yield fns, x, y
 
 			elif imgfmt == 'array':
 
-				yield np.squeeze(images_from_files(fns, (224, 224)), axis=1), \
-					xi, xs, self._normalize_outcomes(y)
+				yield np.squeeze(images_from_files(fns, (224, 224)), axis=1), x, y
 
 
-	def _load_subject_features(self):
-
-		f1 = pd.read_csv(os.path.join(
-			self.datadir,
-			'baseline_data.csv')).set_index('pid')
-
-		f2 = pd.read_excel(os.path.join(
-			self.datadir,
-			'DL Demographics.xlsx'))
-
-		f2['race'] = ((f2['Race'] == 'White') & (f2['Ethnicity'] != 'Hispanic')).astype(float)
-		f2['sex'] = (f2['Gender'] == 'Female').astype(float)
-		f2['pid'] = f2['Subject ID assigned']
-
-		f2 = f2[['pid', 'sex', 'race']].set_index('pid')
-
-		return f1.join(f2, how='left')
-
-
-	def _normalize_outcomes(self, outcomes):
-
-		if self.dichotomize == True:
-
-			return outcomes
-
-		elif self.dichotomize == False:
-
-			return (outcomes - self.train_mean[np.newaxis, :]) / \
-				self.train_std[np.newaxis, :]
-
-		else:
-
-			normalized = (outcomes - self.train_mean[np.newaxis, :]) / \
-				self.train_std[np.newaxis, :]
-			normalized[:, self.is_categorical] = outcomes[:, self.is_categorical]
-
-			return normalized
-
-
-	def sample_data(
-		self, part='all', n=1, imgfmt='array',
-		normalize_outcomes=True, normalize_images=True):
+	def sample_data(self, part='all', n=1, imgfmt='array', normalize_images=True):
 
 		assert part in ['all', 'train', 'val', 'test']
 		assert imgfmt in ['name', 'array']
@@ -295,117 +213,22 @@ class DataLoader:
 
 			s = self.data[part].sample(n=n)
 
-		fns, xi, xs, y = self._split_images_and_outcomes(s)
-
-		if normalize_outcomes:
-
-			y = self._normalize_outcomes(y)
+		fns, x, y = self._split_data(s)
 
 		if imgfmt == 'name':
 
-			return fns, xi, xs, y
+			return fns, x, y
 
 		elif imgfmt == 'array':
 
-			return np.squeeze(images_from_files(
-				fns, (224, 224), normalize=normalize_images)), xi, xs, y
+			return np.squeeze(images_from_files(fns, (224, 224), normalize=normalize_images)), x, y
 
 
-	def _read_subject_data(self, d):
-
-		pid = int(d.split('_')[1].strip('{}'))
-
-		# if pid in [3064]:
-		# 	return None
-
-		data_subdir = os.path.join(self.datadir, d)
-
-		assert os.path.isdir(data_subdir), 'Not a directory: %s' % data_subdir
-
-		print('Reading', data_subdir)
-
-		ema_random = pd.read_excel(
-			os.path.join(
-				data_subdir,
-				'%i_EMA_data' % pid,
-				'Random.xlsx'),
-			parse_dates=[['Survey Submitted Date', 'Survey Submitted Time']],
-			dayfirst=True)
-
-		ema_smoking = pd.read_excel(
-			os.path.join(
-				data_subdir,
-				'%i_EMA_data' % pid,
-				'Smoking.xlsx'),
-			parse_dates=[['Survey Submitted Date', 'Survey Submitted Time']],
-			dayfirst=True)
-
-		date_col = 'Survey Submitted Date_Survey Submitted Time'
-
-		ema_random['Day'] = (ema_random[date_col] - ema_random[date_col][0]).dt.days.astype(int)
-		ema_smoking['Day'] = (ema_smoking[date_col] - ema_smoking[date_col][0]).dt.days.astype(int)
-
-		ema_smoking = ema_smoking.rename(
-			columns={'How long ago did you use a tobacco product?': \
-				'When did you last use a tobacco product?'})
-
-		craving_col = 'When you decided to use the tobacco product, how strong was your urge to use the tobacco product?'
-
-		ema_random.loc[ema_random[craving_col] == 'CONDITION_SKIPPED', craving_col] = \
-			ema_random['How strong is your current urge to smoke a cigarette?'][ema_random[craving_col] == 'CONDITION_SKIPPED']		
-
-		ema_random['imagedir'] = os.path.join(
-			data_subdir, 'Random_folder')
-
-		ema_smoking['imagedir'] = os.path.join(
-			data_subdir, 'Smoking_folder')
-
-		df_random = self._get_outcomes(
-			ema_random,
-			dichotomize=self.dichotomize)
-
-		df_smoking = self._get_outcomes(
-			ema_smoking,
-			dichotomize=self.dichotomize)
-
-		df_random['prompt'] = 'random'
-		df_smoking['prompt'] = 'smoking'
-
-		df_random['Day'] = ema_random['Day']
-		df_smoking['Day'] = ema_smoking['Day']
-
-		df_random['datetime'] = ema_random[date_col]
-		df_smoking['datetime'] = ema_smoking[date_col]
-
-		df_random['filename'] = ema_random['imagedir'].str.cat(
-			ema_random[const.IMAGECOL].str.split('/').str[-1],
-			sep='/')
-
-		df_smoking['filename'] = ema_smoking['imagedir'].str.cat(
-			ema_smoking[const.IMAGECOL].str.split('/').str[-1],
-			sep='/')
-
-		df = pd.concat([df_random, df_smoking], axis=0)
-
-		df['weekend'] = (df['datetime'].dt.weekday > 4).astype(float)
-		df['part_of_day'] = df['datetime'].dt.hour // 6
-		df['night'] = (df['part_of_day'] == 0).astype(float)
-		df['morning'] = (df['part_of_day'] == 1).astype(float)
-		df['afternoon'] = (df['part_of_day'] == 2).astype(float)
-		df['evening'] = (df['part_of_day'] == 3).astype(float)
-
-		df = df.drop(['datetime', 'part_of_day'], axis=1)
-
-		df['pid'] = pid
-
-		return df.set_index(['pid', 'prompt', 'Day', df.index])
-
-
-	def _validate_data(self, df):
+	def _remove_missing_files(self, df):
 
 		exists = df['filename'].apply(lambda x: os.path.exists(str(x)))
 
-		print('The following files were not found:')
+		print('%i files were not found:' % sum(~exists))
 		print(df['filename'][~exists])
 
 		df['filename'][~exists].to_csv('../results/not_found.csv')
@@ -413,40 +236,26 @@ class DataLoader:
 		return df[exists]
 
 
-	def _split_images_and_outcomes(self, df):
+	def _normalize_numeric(self):
+
+		for col in NUMERIC_COLS:
+
+			train_mean = self.data['train'][col].mean(axis=0)
+			train_std = self.data['train'][col].std(axis=0)
+
+			self.data['all'].loc[:, col] = ((self.data['all'][col] - train_mean) / train_std).fillna(0)
+			self.data['train'].loc[:, col] = ((self.data['train'][col] - train_mean) / train_std).fillna(0)
+			self.data['val'].loc[:, col] = ((self.data['val'][col] - train_mean) / train_std).fillna(0)
+			self.data['test'].loc[:, col] = ((self.data['test'][col] - train_mean) / train_std).fillna(0)
+
+
+	def _split_data(self, df):
 
 		filenames = df[['filename']].values
-		image_features = df[self.image_feature_cols].values
-		subject_features = df[self.subject_feature_cols].values
+		features = df[self.feature_cols].values
 		outcomes = df[const.OUTCOMES].values
 
-		return filenames, image_features, subject_features, outcomes
-
-
-	def _get_outcomes(self, df, dichotomize=None):
-		return pd.DataFrame(
-			{o: const.score_outcome(
-				df, o, dichotomize=dichotomize) for o in const.OUTCOMES},
-			index=df.index)
-
-
-def check_directories(dirlist):
-
-	for i, d in enumerate(dirlist):
-
-		if os.path.exists(d):
-
-			print('Found data directory', d)
-
-			break
-
-		if (i + 1) == len(dirlist):
-
-			print('No data directory found')
-
-			assert False
-
-	return d
+		return filenames, features, outcomes
 
 
 def listdir_by_ext(directory, extension=None):
