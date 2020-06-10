@@ -32,7 +32,7 @@ def main():
 	OUTCOMES = ['smoking', 'craving_binary', 'smoking_allowed', 'outside']
 
 	hyperparam_options = {
-		'n_hidden_layers': [1],
+		'n_hidden_layers': [0, 1],
 		'hidden_layer_sizes': np.arange(50, 1000),
 		'learning_rate': np.logspace(-4., -6),
 		'activation_fn': [tf.nn.relu, None],#[tf.nn.relu, tf.nn.tanh],
