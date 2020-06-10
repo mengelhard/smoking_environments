@@ -70,6 +70,7 @@ class DataLoader:
 	def __init__(
 		self, n_folds=5, val_fold=3, test_fold=4,
 		partition_method='participant',
+		outcomes=const.OUTCOMES,
 		pid_features=True,
 		nrows=None, **kwargs):
 
@@ -84,16 +85,19 @@ class DataLoader:
 			'EMA data and Photos')
 
 		self.partition_method = partition_method
-		self.is_categorical = np.array(
-			[const.VARTYPES[o] == 'categorical' for o in const.OUTCOMES])
 
-		self.n_out = len(const.OUTCOMES)
+		self.outcomes = outcomes
+
+		self.is_categorical = np.array(
+			[const.VARTYPES[o] == 'categorical' for o in self.outcomes])
+
+		self.n_out = len(self.outcomes)
 
 		all_data = pd.read_csv(os.path.join(
 			self.datadir,
 			'all_data.csv')).set_index(['pid', 'prompt', 'index'])
 
-		na_rows = all_data[const.OUTCOMES + ['filename']].isna().any(axis=1)
+		na_rows = all_data[self.outcomes + ['filename']].isna().any(axis=1)
 		all_data = all_data[~na_rows]
 		print('Removed %i rows with missing filenames or outcomes' % sum(na_rows))
 
@@ -109,7 +113,7 @@ class DataLoader:
 
 				all_data[pid] = (pid_series == pid).astype(float)
 
-		self.feature_cols = [x for x in all_data.columns if not x in const.OUTCOMES]
+		self.feature_cols = list(all_data.loc[:, 'day':].columns)
 		self.n_features = len(self.feature_cols)
 
 		self.data = dict()
@@ -142,7 +146,7 @@ class DataLoader:
 
 		elif partition_method == 'longitudinal':
 
-			test_idx = self.data['all'].index.get_level_values('Day') >= 10
+			test_idx = self.data['all']['day'] >= 10
 
 			np.random.seed(0)
 			train_or_val_idx = np.random.rand(len(self.data['all'])) < .8
@@ -169,9 +173,6 @@ class DataLoader:
 		self.n_test = len(self.data['test'])
 
 		print('There are %i images in the test set' % self.n_test)
-
-		self.train_mean = self.data['train'][const.OUTCOMES].mean(axis=0)
-		self.train_std = self.data['train'][const.OUTCOMES].std(axis=0)
 
 		self._normalize_numeric()
 
@@ -253,7 +254,7 @@ class DataLoader:
 
 		filenames = df[['filename']].values
 		features = df[self.feature_cols].values
-		outcomes = df[const.OUTCOMES].values
+		outcomes = df[self.outcomes].values
 
 		return filenames, features, outcomes
 
