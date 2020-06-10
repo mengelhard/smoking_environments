@@ -133,7 +133,7 @@ def main():
 
 		if SAVE_AS_TFLITE: # save model as tflite
 
-			in_tensors = [mdl.xi mdl.is_training]
+			in_tensors = [mdl.xi, mdl.is_training]
 			out_tensors = [mdl.y]
 
 			try:
