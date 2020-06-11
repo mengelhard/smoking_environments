@@ -18,7 +18,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 30
+NUM_TUNING_RUNS = 20
 NUM_ROWS_PER_DATAFILE = None
 WRITE_BOTTLENECKS = True
 SAVE_AS_TFLITE = True
@@ -32,9 +32,9 @@ def main():
 	OUTCOMES = ['smoking', 'craving_binary', 'smoking_allowed', 'outside']
 
 	hyperparam_options = {
-		'n_hidden_layers': [0, 1],
+		'n_hidden_layers': [0],
 		'hidden_layer_sizes': np.arange(50, 1000),
-		'learning_rate': np.logspace(-4., -6),
+		'learning_rate': np.logspace(-2., -6),
 		'activation_fn': [tf.nn.relu, None],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
 		'train_mobilenet': [True],#, False],
