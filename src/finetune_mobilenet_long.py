@@ -34,7 +34,7 @@ def main():
 	hyperparam_options = {
 		'n_hidden_layers': [0],
 		'hidden_layer_sizes': np.arange(50, 1000),
-		'learning_rate': np.logspace(-2., -6),
+		'learning_rate': np.logspace(-4., -6.),
 		'activation_fn': [tf.nn.relu, None],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
 		'train_mobilenet': [True],#, False],
@@ -213,6 +213,7 @@ class SmokingNet:
 		n_hidden_layers=0,
 		hidden_layer_sizes=50,
 		learning_rate=1e-3,
+		burn_in_learning_rate=1e-3,
 		activation_fn=tf.nn.relu,
 		dropout_pct=.5,
 		train_mobilenet=False,
@@ -245,6 +246,7 @@ class SmokingNet:
 		max_epochs=100,
 		max_epochs_no_improve=2,
 		batch_size=100,
+		burn_in_epochs=3,
 		**kwargs):
 
 		sess.run(tf.compat.v1.global_variables_initializer())
@@ -277,14 +279,23 @@ class SmokingNet:
 
 		for epoch_idx in range(max_epochs):
 
-			# training batches
+			if epoch_idx < burn_in_epochs:
 
-			train_batch_sizes, train_loss = self._run_batches(
-				sess,
-				[self.loss],
-				'train',
-				batch_size,
-				train=True)
+				train_batch_sizes, train_loss = self._run_batches(
+					sess,
+					[self.loss],
+					'train',
+					batch_size,
+					train_step=self.logit_train_step)
+
+			else:
+
+				train_batch_sizes, train_loss = self._run_batches(
+					sess,
+					[self.loss],
+					'train',
+					batch_size,
+					train_step=self.full_train_step)
 
 			train_indices = np.arange(len(train_loss)) + epoch_idx * batches_per_epoch
 			train_stats.extend(list(zip(train_indices, train_loss)))
@@ -295,8 +306,7 @@ class SmokingNet:
 				sess,
 				[self.loss],
 				'val',
-				batch_size,
-				train=False)
+				batch_size)
 
 			train_idx = (epoch_idx + 1) * batches_per_epoch
 			avg_val_loss = np.sum(val_batch_sizes * val_loss) / np.sum(val_batch_sizes)
@@ -327,8 +337,7 @@ class SmokingNet:
 			sess,
 			[self.y_pred, self.y_prob_pred, self.y, self.loss, self.image_features],
 			part,
-			batch_size,
-			train=False)
+			batch_size)
 
 		avg_loss = (loss * batch_sizes) / np.sum(batch_sizes)
 
@@ -338,7 +347,7 @@ class SmokingNet:
 		return y_pred, y, avg_loss, image_features
 
 
-	def _run_batches(self, sess, tensors, part, batch_size, train=False):
+	def _run_batches(self, sess, tensors, part, batch_size, train_step=None):
 
 		results = [[] for t in tensors]
 		batch_sizes = []
@@ -348,10 +357,10 @@ class SmokingNet:
 
 			print('Starting %s batch %i' % (part, batch_idx))
 
-			if train:
+			if train_step is not None:
 
 				results_ = sess.run(
-					tensors + [self.train_step],
+					tensors + [train_step],
 					feed_dict={
 						self.xi: xib,
 						self.y: yb,
@@ -455,8 +464,15 @@ class SmokingNet:
 		self.loss = tf.reduce_mean(
 			se_mask * self.loss_se + ce_mask * self.loss_ce)
 
-		self.train_step = tf.compat.v1.train.AdamOptimizer(
+		self.full_train_step = tf.compat.v1.train.AdamOptimizer(
 			self.learning_rate).minimize(self.loss)
+
+		myvars = tf.compat.v1.get_collection(
+			tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
+			scope='outcomes')
+
+		self.logit_train_step = tf.compat.v1.train.AdamOptimizer(
+			self.logit_learning_rate).minimize(self.loss, var_list=myvars)
 
 
 def mlp(x, hidden_layer_sizes,
