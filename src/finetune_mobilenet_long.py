@@ -213,7 +213,7 @@ class SmokingNet:
 		n_hidden_layers=0,
 		hidden_layer_sizes=50,
 		learning_rate=1e-3,
-		burn_in_learning_rate=1e-3,
+		logit_learning_rate=1e-3,
 		activation_fn=tf.nn.relu,
 		dropout_pct=.5,
 		train_mobilenet=False,
@@ -228,6 +228,7 @@ class SmokingNet:
 		self.hidden_layer_sizes = [hidden_layer_sizes] * n_hidden_layers
 
 		self.learning_rate = learning_rate
+		self.logit_learning_rate = logit_learning_rate
 		self.activation_fn = activation_fn
 		self.dropout_pct = dropout_pct
 
