@@ -50,9 +50,16 @@ MOBILENET_OUTPUT_SIZE = {
 
 IMAGECOL = 'Take a photo of your current environment'
 
+# OUTCOMES = [
+# 	'smoking',
+# 	'craving',
+# 	'craving_binary',
+# 	'smoking_allowed',
+# 	'outside'
+# ]
+
 OUTCOMES = [
 	'smoking',
-	'craving',
 	'craving_binary',
 	'smoking_allowed',
 	'outside'

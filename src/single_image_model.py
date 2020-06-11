@@ -18,12 +18,13 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 30
+NUM_TUNING_RUNS = 40
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
-PERSONALIZE = True
+USE_FEATURES = True
+USE_PID_FEATURES = True
 WRITE_BOTTLENECKS = True
-SAVE_AS_TFLITE = True
+SAVE_MODEL = True
 
 
 def main():
@@ -32,23 +33,22 @@ def main():
 	from results_writer import ResultsWriter
 
 	hyperparam_options = {
-		'n_hidden_layers': [1],
-		'hidden_layer_sizes': [1000],#np.arange(50, 1000),
-		'learning_rate': np.logspace(-5., -6),
+		'n_hidden_layers': [0, 1],
+		'hidden_layer_sizes': np.arange(50, 1000),
+		'learning_rate': np.logspace(-4., -6),
 		'activation_fn': [tf.nn.relu, tf.nn.sigmoid, tf.nn.elu, None],#[tf.nn.relu, tf.nn.tanh],
 		'dropout_pct': [0, .1, .3, .5],
-		'train_mobilenet': [True],#, False],
+		'train_mobilenet': [False],#[True, False],
 		'mobilenet_endpoint': ['global_pool'],#['global_pool', 'Logits'],
 		'max_epochs_no_improve': np.arange(2),
 		'batch_size': [50],
-		'dichotomize': [None],
-		'subject_embedding_size': np.arange(20) + 10
+		'subject_embedding_size': [None, 20]
 	}
 
 	resultcols = ['status']
-	resultcols += ['fold']
-	resultcols += [('mse_%s' % o) for o in const.OUTCOMES]
-	resultcols += [('r2_%s' % o) for o in const.OUTCOMES]
+	#resultcols += ['fold']
+	#resultcols += [('mse_%s' % o) for o in const.OUTCOMES]
+	#resultcols += [('r2_%s' % o) for o in const.OUTCOMES]
 	resultcols += [('auc_%s' % o) for o in const.OUTCOMES]
 	resultcols += list(hyperparam_options.keys())
 
@@ -66,14 +66,14 @@ def main():
 
 		for val_fold in range(1):
 
-			print('Training with val_fold =', val_fold)
+			#print('Training with val_fold =', val_fold)
 
 			tf.compat.v1.reset_default_graph()
 			dl = DataLoader(
 				val_fold=val_fold,
 				nrows=NUM_ROWS_PER_DATAFILE,
 				partition_method=PARTITION_METHOD,
-				pid_features=PERSONALIZE,
+				pid_features=USE_PID_FEATURES,
 				**hyperparams)
 			mdl = SingleImageModel(dl, **hyperparams)
 
@@ -86,18 +86,34 @@ def main():
 				train_stats, val_stats = mdl.train(s, **hyperparams)
 				y_pred, y, avg_val_loss, _ = mdl.predict(s, 'val', hyperparams['batch_size'])
 
-			results_dict = get_results(y, y_pred, hyperparams['dichotomize'])
+			results_dict = get_results(y, y_pred)
 
 			fold_losses.append(avg_val_loss)
 
+			# rw.write(i, {
+			# 	'status': 'complete',
+			# 	'fold': val_fold,
+			# 	**results_dict,
+			# 	**hyperparams})
+
 			rw.write(i, {
 				'status': 'complete',
-				'fold': val_fold,
 				**results_dict,
 				**hyperparams})
 
+			# rw.plot(
+			# 	'%i_%i' % (i, val_fold),
+			# 	train_stats,
+			# 	val_stats,
+			# 	y_pred,
+			# 	y,
+			# 	const.OUTCOMES,
+			# 	results_dict,
+			# 	const.VARTYPES,
+			# 	**hyperparams)
+
 			rw.plot(
-				'%i_%i' % (i, val_fold),
+				'%i' % i,
 				train_stats,
 				val_stats,
 				y_pred,
@@ -126,7 +142,7 @@ def main():
 		val_fold=3,
 		nrows=NUM_ROWS_PER_DATAFILE,
 		partition_method=PARTITION_METHOD,
-		pid_features=PERSONALIZE,
+		pid_features=USE_PID_FEATURES,
 		**hyperparams)
 	mdl = SingleImageModel(dl, **hyperparams)
 
@@ -140,34 +156,34 @@ def main():
 
 		if WRITE_BOTTLENECKS:
 
-			y_pred_all, y_all, _, image_features = mdl.predict(
+			_, _, _, image_features_all_data = mdl.predict(
 				s, 'all', hyperparams['batch_size'])
 
-		if SAVE_AS_TFLITE: # save model as tflite
+		if SAVE_MODEL: # save model as pb (tflite??)
 
-			in_tensors = [mdl.xi, mdl.xf, mdl.is_training]
-			out_tensors = [mdl.y]
+			tf.train.write_graph(
+				s.graph_def,
+				'../saved_models',
+				'quiteye.pb',
+				as_text=False)
 
-			try:
+			# if USE_FEATURES:
+			# 	in_tensors = [mdl.xi, mdl.xf, mdl.is_training]
+			# else:
+			# 	in_tensors = [mdl.xi, mdl.is_training]
+			
+			# out_tensors = [mdl.y]
 
-				converter = tf.lite.TFLiteConverter.from_session(
-					s, in_tensors, out_tensors)
-				tflite_model = converter.convert()
-				open('../saved_models/quiteye.tflite', 'wb').write(
-					tflite_model)
-
-			except:
-				pass
+			# converter = tf.lite.TFLiteConverter.from_session(
+			# 	s, in_tensors, out_tensors)
+			# tflite_model = converter.convert()
+			# open('../saved_models/quiteye.tflite', 'wb').write(
+			# 	tflite_model)
 
 	if WRITE_BOTTLENECKS:
 
 		df_all = dl.data['all']
 		df_all['image_features'] = list(image_features)
-
-		for i, out in enumerate(const.OUTCOMES):
-
-			pred_name = out + '_predicted'
-			df_all[pred_name] = y_pred_all[:, i]
 
 		df_all.drop('image_features', axis=1).to_csv(
 			os.path.join(rw.results_dir, 'predictions.csv'))
@@ -177,11 +193,24 @@ def main():
 		with open(os.path.join(rw.results_dir, 'ddict.pickle'), 'wb') as handle:
 			pickle.dump(data_dict, handle)
 
-	results_dict = get_results(y, y_pred, hyperparams['dichotomize'])
+	for i, out in enumerate(const.OUTCOMES):
+
+		pred_name = out + '_predicted'
+		df_test = dl.data['test']
+		df_test[pred_name] = y_pred[:, i]
+
+	df_test.to_csv('../results/predictions.csv')
+
+	results_dict = get_results(y, y_pred)
 
 	rw.write('final', {
 		'status': 'complete',
 		'fold': 4,
+		**results_dict,
+		**hyperparams})
+
+	rw.write('final', {
+		'status': 'complete',
 		**results_dict,
 		**hyperparams})
 
@@ -201,16 +230,9 @@ def main():
 	# 	rw.write('final', {'status': 'failed', **hyperparams})
 
 
-def get_results(y_true, y_pred, dichotomize=None):
+def get_results(y_true, y_pred):
 
-	if dichotomize == True:
-		var_types = {o: 'categorical' for o in const.OUTCOMES}
-
-	elif dichotomize == False:
-		var_types = {o: 'numeric' for o in const.OUTCOMES}
-
-	else:
-		var_types = const.VARTYPES
+	var_types = const.VARTYPES
 
 	result_dict = {}
 
@@ -237,14 +259,13 @@ class SingleImageModel:
 		dropout_pct=.5,
 		train_mobilenet=False,
 		mobilenet_endpoint='global_pool',
-		subject_embedding_size=10,
+		subject_embedding_size=None,
 		**kwargs):
 
 		self.dataloader = dataloader
 
 		self.n_out = dataloader.n_out
-		self.n_subject_features = dataloader.n_subject_features
-		self.n_image_features = dataloader.n_image_features
+		self.n_features = dataloader.n_features
 
 		self.hidden_layer_sizes = [hidden_layer_sizes] * n_hidden_layers
 
@@ -266,7 +287,7 @@ class SingleImageModel:
 
 	def train(
 		self, sess,
-		max_epochs=100,
+		max_epochs=1,#100,
 		max_epochs_no_improve=2,
 		batch_size=100,
 		**kwargs):
@@ -356,20 +377,10 @@ class SingleImageModel:
 
 		avg_loss = (loss * batch_sizes) / np.sum(batch_sizes)
 
-		if self.dataloader.dichotomize == True:
+		cat_cols = self.dataloader.is_categorical
+		y_pred[:, cat_cols] = y_prob_pred[:, cat_cols]
 
-			return y_prob_pred, y, avg_loss, image_features
-
-		elif self.dataloader.dichotomize == False:
-
-			return y_pred, y, avg_loss, image_features
-
-		else:
-
-			cat_cols = self.dataloader.is_categorical
-			y_pred[:, cat_cols] = y_prob_pred[:, cat_cols]
-
-			return y_pred, y, avg_loss, image_features
+		return y_pred, y, avg_loss, image_features
 
 
 	def _run_batches(self, sess, tensors, part, batch_size, train=False):
@@ -377,32 +388,27 @@ class SingleImageModel:
 		results = [[] for t in tensors]
 		batch_sizes = []
 
-		for batch_idx, (xib, xifb, xfb, yb) in enumerate(self.dataloader.get_batch(
+		for batch_idx, (xib, xfb, yb) in enumerate(self.dataloader.get_batch(
 			part, batch_size)):
 
 			print('Starting %s batch %i' % (part, batch_idx))
 
-			if train:
+			if USE_FEATURES:
 
-				results_ = sess.run(
-					tensors + [self.train_step],
-					feed_dict={
-						self.xi: xib,
-						self.xif: xifb,
-						self.xf: xfb,
-						self.y: yb,
-						self.is_training: True})
+				feed_dict = {
+					self.xi: xib,
+					self.xf: xfb,
+					self.y: yb,
+					self.is_training: train}
 
 			else:
 
-				results_ = sess.run(
-					tensors,
-					feed_dict={
-						self.xi: xib,
-						self.xif: xifb,
-						self.xf: xfb,
-						self.y: yb,
-						self.is_training: False})
+				feed_dict = {
+					self.xi: xib,
+					self.y: yb,
+					self.is_training: train}
+
+			results_ = sess.run(tensors + [self.train_step], feed_dict=feed_dict)
 
 			batch_sizes.append(len(xib))
 
@@ -418,13 +424,11 @@ class SingleImageModel:
 			dtype=tf.float32,
 			shape=(None, 224, 224, 3))
 
-		self.xif = tf.compat.v1.placeholder(
-			dtype=tf.float32,
-			shape=(None, self.n_image_features))
+		if USE_FEATURES:
 
-		self.xf = tf.compat.v1.placeholder(
-			dtype=tf.float32,
-			shape=(None, self.n_subject_features))
+			self.xf = tf.compat.v1.placeholder(
+				dtype=tf.float32,
+				shape=(None, self.n_features))
 
 		self.y = tf.compat.v1.placeholder(
 			dtype=tf.float32,
@@ -463,17 +467,30 @@ class SingleImageModel:
 
 		### NOTE: mobilenet v2 says logits should be LINEAR from here
 
-		# if self.n_image_features > 0:
-
-		# 	image_features = tf.concat([self.image_features, self.xif], axis=1)
-
-		# else:
-
-		# 	image_features = self.image_features
-
-		image_features = tf.concat([self.image_features, self.xif, self.xf], axis=1)
-
 		with tf.compat.v1.variable_scope('outcomes'):
+
+			if USE_FEATURES:
+
+				if self.subject_embedding_size is not None:
+
+					with tf.compat.v1.variable_scope('subject_embeddings'):
+
+						subject_features = mlp(
+							self.xf,
+							[self.subject_embedding_size],
+							dropout_pct=0.,
+							activation_fn=None,
+							training=self.is_training)
+
+				else:
+
+					subject_features = self.xf
+
+				image_features = tf.concat([self.image_features, subject_features], axis=1)
+
+			else:
+
+				image_features = self.image_features
 
 			with tf.compat.v1.variable_scope('mlp'):
 
@@ -484,31 +501,13 @@ class SingleImageModel:
 					activation_fn=self.activation_fn,
 					training=self.is_training)
 
-			# with tf.compat.v1.variable_scope('subject_embeddings'):
-
-			# 	subject_embeddings = mlp(
-			# 		self.xf,
-			# 		[self.subject_embedding_size],
-			# 		dropout_pct=0.,
-			# 		activation_fn=None,
-			# 		training=self.is_training)
-
-			# with tf.compat.v1.variable_scope('subject_features'):
-
-			# 	subject_features = mlp(
-			# 		subject_embeddings,
-			# 		[self.hidden_layer_sizes[-1]],
-			# 		dropout_pct=0.,
-			# 		activation_fn=None,
-			# 		training=self.is_training)
-
-			# 	hidden_layer = hidden_layer + subject_features
-
 			with tf.compat.v1.variable_scope('linear'):
 
 				# add features again, because they may directly affect outcomes
 
-				hidden_layer = tf.concat([hidden_layer, self.xif, self.xf], axis=1)
+				if USE_FEATURES:
+
+					hidden_layer = tf.concat([hidden_layer, subject_features], axis=1)
 
 				self.y_pred = mlp(
 					hidden_layer,
@@ -522,37 +521,18 @@ class SingleImageModel:
 
 	def _build_train_step(self):
 
-		if self.dataloader.dichotomize == True:
+		self.loss_se = (self.y - self.y_pred) ** 2
 
-			self.loss = tf.compat.v1.losses.sigmoid_cross_entropy(
-				multi_class_labels=self.y,
-				logits=self.y_pred)
+		self.loss_ce = tf.compat.v1.losses.sigmoid_cross_entropy(
+			multi_class_labels=self.y,
+			logits=self.y_pred,
+			reduction='none')
 
-		elif self.dataloader.dichotomize == False:
+		se_mask = (~self.dataloader.is_categorical).astype(float)[np.newaxis, :]
+		ce_mask = (self.dataloader.is_categorical).astype(float)[np.newaxis, :]
 
-			self.loss = tf.compat.v1.losses.mean_squared_error(
-				self.y,
-				self.y_pred)
-
-		else:
-
-			# self.loss_mse = tf.compat.v1.losses.mean_squared_error(
-			# 	self.y,
-			# 	self.y_pred,
-			# 	reduction='none')
-
-			self.loss_se = (self.y - self.y_pred) ** 2
-
-			self.loss_ce = tf.compat.v1.losses.sigmoid_cross_entropy(
-				multi_class_labels=self.y,
-				logits=self.y_pred,
-				reduction='none')
-
-			se_mask = (~self.dataloader.is_categorical).astype(float)[np.newaxis, :]
-			ce_mask = (self.dataloader.is_categorical).astype(float)[np.newaxis, :]
-
-			self.loss = tf.reduce_mean(
-				se_mask * self.loss_se + ce_mask * self.loss_ce)
+		self.loss = tf.reduce_mean(
+			se_mask * self.loss_se + ce_mask * self.loss_ce)
 
 		if self.train_mobilenet:
 
@@ -561,11 +541,11 @@ class SingleImageModel:
 
 		else:
 
-			myvars = tf.compat.v1.get_collection(
-				tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
-				scope='image_features')
+			# myvars = tf.compat.v1.get_collection(
+			# 	tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
+			# 	scope='image_features')
 
-			myvars += tf.compat.v1.get_collection(
+			myvars = tf.compat.v1.get_collection(
 				tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
 				scope='outcomes')
 
