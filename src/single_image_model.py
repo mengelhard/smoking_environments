@@ -18,7 +18,7 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 5
+NUM_TUNING_RUNS = 10
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
 USE_FEATURES = True
@@ -35,7 +35,7 @@ def main():
 	hyperparam_options = {
 		'n_hidden_layers': [1],#[0, 1],
 		'hidden_layer_sizes': [1024],#np.arange(50, 1000),
-		'learning_rate': np.logspace(-5., -6),
+		'learning_rate': np.logspace(-3., -6.),
 		'activation_fn': [tf.nn.relu],#[tf.nn.relu, None],
 		'dropout_pct': [0, .1, .3, .5],
 		'train_mobilenet': [False],#[True, False],
