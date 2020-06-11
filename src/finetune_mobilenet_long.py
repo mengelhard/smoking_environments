@@ -265,8 +265,7 @@ class SmokingNet:
 			sess,
 			[self.loss],
 			'val',
-			batch_size,
-			train=False)
+			batch_size)
 
 		avg_val_loss = np.sum(val_batch_sizes * val_loss) / np.sum(val_batch_sizes)
 		val_stats.append((0, avg_val_loss))
