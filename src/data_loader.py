@@ -69,7 +69,7 @@ class DataLoader:
 
 	def __init__(
 		self, n_folds=5, val_fold=3, test_fold=4,
-		partition_method='participant',
+		partition_method='longitudinal',
 		outcomes=const.OUTCOMES,
 		pid_features=True,
 		nrows=None, **kwargs):
@@ -153,7 +153,12 @@ class DataLoader:
 			np.random.seed()
 
 			train_idx = ~test_idx & train_or_val_idx
-			val_idx = ~test_idx & ~ train_or_val_idx
+			val_idx = ~test_idx & ~train_or_val_idx
+
+			assert sum(test_idx | train_idx | val_idx) == len(test_idx)
+			assert sum(test_idx & train_idx) == 0
+			assert sum(test_idx & val_idx) == 0
+			assert sum(train_idx & val_idx) == 0
 
 		else:
 
