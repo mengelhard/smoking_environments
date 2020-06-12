@@ -18,10 +18,10 @@ for f in const.CHECKPOINT_FILE_PATHS:
 	if os.path.exists(f):
 		CHECKPOINT_FILE = f + '/mobilenet_v2_1.0_224.ckpt'
 
-NUM_TUNING_RUNS = 10
+NUM_TUNING_RUNS = 15
 NUM_ROWS_PER_DATAFILE = None
 PARTITION_METHOD = 'longitudinal'
-USE_FEATURES = False
+USE_FEATURES = True
 USE_PID_FEATURES = True
 WRITE_BOTTLENECKS = True
 SAVE_MODEL = True

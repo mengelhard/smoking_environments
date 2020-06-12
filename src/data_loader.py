@@ -113,7 +113,7 @@ class DataLoader:
 
 				all_data[pid] = (pid_series == pid).astype(float)
 
-		self.feature_cols = list(all_data.loc[:, 'day':].columns)
+		self.feature_cols = list(all_data.loc[:, 'weekend':].columns)
 		self.n_features = len(self.feature_cols)
 
 		self.data = dict()
@@ -146,19 +146,23 @@ class DataLoader:
 
 		elif partition_method == 'longitudinal':
 
-			test_idx = self.data['all']['day'] >= 10
+			# test_idx = self.data['all']['day'] >= 10
 
-			np.random.seed(0)
-			train_or_val_idx = np.random.rand(len(self.data['all'])) < .8
-			np.random.seed()
+			# np.random.seed(0)
+			# train_or_val_idx = np.random.rand(len(self.data['all'])) < .8
+			# np.random.seed()
 
-			train_idx = ~test_idx & train_or_val_idx
-			val_idx = ~test_idx & ~train_or_val_idx
+			# train_idx = ~test_idx & train_or_val_idx
+			# val_idx = ~test_idx & ~train_or_val_idx
 
-			assert sum(test_idx | train_idx | val_idx) == len(test_idx)
-			assert sum(test_idx & train_idx) == 0
-			assert sum(test_idx & val_idx) == 0
-			assert sum(train_idx & val_idx) == 0
+			# assert sum(test_idx | train_idx | val_idx) == len(test_idx)
+			# assert sum(test_idx & train_idx) == 0
+			# assert sum(test_idx & val_idx) == 0
+			# assert sum(train_idx & val_idx) == 0
+
+			test_idx = self.data['all']['day'] > 10
+			train_idx = self.data['all']['day'] < 9
+			val_idx = ~(test_idx | train_idx)
 
 		else:
 
